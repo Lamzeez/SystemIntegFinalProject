@@ -1,0 +1,35 @@
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Let App.css handle background & colors */
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+/* Root should just fill the viewport, not center its children */
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* Simple link style (optional) */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* Don’t override button layout; App.css styles our buttons */
+button {
+  font-family: inherit;
+}
