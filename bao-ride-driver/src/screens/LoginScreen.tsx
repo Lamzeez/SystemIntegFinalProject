@@ -1,4 +1,4 @@
-// src/screens/LoginScreen.tsx
+// src/screens/LoginScreen.tsx (DRIVER)
 import React, { useState } from "react";
 import { View, Text, TextInput, Button } from "react-native";
 import { api } from "../api";
@@ -24,22 +24,28 @@ export default function LoginScreen({
         return;
       }
 
-      // 👇 note the await
+      // Save auth state
       await login(res.data.token, res.data.user);
 
+      // Authenticate this socket as a driver
       const socket = getSocket();
       socket.emit("auth:driver", { token: res.data.token });
 
-      const check = await api.get("/driver/rides/current");
-      onLoginRideCheck(check.data.ride?.id || null);
+      // Check if driver already has an active ride
+      try {
+        const current = await api.get("/driver/rides/current");
+        onLoginRideCheck(current.data.ride?.id || null);
+      } catch (e) {
+        console.log("Failed to check current ride after login", e);
+        onLoginRideCheck(null);
+      }
 
       setMsg("");
-    } catch (err) {
-      console.log(err);
+    } catch (err: any) {
+      console.log("Driver login failed", err.response?.data || err);
       setMsg("Login failed.");
     }
   };
-
 
   return (
     <View style={{ padding: 20 }}>
@@ -52,6 +58,7 @@ export default function LoginScreen({
         style={{ borderWidth: 1, padding: 8, marginBottom: 10 }}
         value={email}
         onChangeText={setEmail}
+        autoCapitalize="none"
       />
 
       <Text>Password</Text>

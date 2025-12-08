@@ -1,13 +1,8 @@
-// @suggested_answers/passenger_app_api.ts.txt
-// This file is for the new passenger app: bao-ride-passenger/src/api.ts
-
+// src/api.ts
 import axios from "axios";
 
-// NOTE: Remember to change this to your actual backend URL when deploying
-// or if you are using ngrok for local development.
-export const BASE_URL = "http://localhost:4000";
+export const BASE_URL = "http://localhost:4000"; // or your ngrok URL
 
-// Internal token storage
 let authToken: string | null = null;
 
 export const setAuthToken = (token: string | null) => {

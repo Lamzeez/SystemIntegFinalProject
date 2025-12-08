@@ -582,6 +582,24 @@ app.get('/admin/rides', authenticateToken, requireAdmin, async (req, res) => {
 
 
 
+app.get('/passenger/rides/current', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'passenger') {
+    return res.status(403).json({ error: 'Only passengers can view rides' });
+  }
+
+  const passengerId = req.user.id;
+  const [rows] = await pool.query(
+    `SELECT * FROM rides
+     WHERE passenger_id = ?
+       AND status IN ('requested','assigned','in_progress')
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [passengerId]
+  );
+
+  res.json({ ride: rows[0] || null });
+});
+
 
 // (Later: add /auth/login, /drivers, /rides, etc.)
 // ---------- AUTH ROUTES ----------
@@ -715,6 +733,7 @@ app.post('/rides/request', authenticateToken, async (req, res) => {
     // Fetch the newly created ride
     const [rows] = await pool.query('SELECT * FROM rides WHERE id = ?', [rideId]);
     const newRide = rows[0];
+    await findAndNotifyDrivers(newRide);
 
     // TODO: Emit a socket event to notify available drivers about the new ride request
     // This will be part of the next steps: "Notify Drivers of New Rides"
@@ -725,6 +744,82 @@ app.post('/rides/request', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to request ride' });
   }
 });
+
+
+// Passenger cancels a ride
+app.post('/rides/:id/cancel', authenticateToken, async (req, res) => {
+  try {
+    // Only passengers can cancel their own rides
+    if (req.user.role !== 'passenger') {
+      return res.status(403).json({ error: 'Only passengers can cancel rides' });
+    }
+
+    const rideId = Number(req.params.id);
+    const passengerId = req.user.id;
+
+    // Only allow cancelling if it's still requested or assigned
+    const [result] = await pool.query(
+      `UPDATE rides
+       SET status = 'cancelled'
+       WHERE id = ?
+         AND passenger_id = ?
+         AND status IN ('requested','assigned')`,
+      [rideId, passengerId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res
+        .status(400)
+        .json({ error: 'Ride cannot be cancelled (maybe already in progress or finished)' });
+    }
+
+    // Notify all clients (passenger app, driver app, admin dashboard)
+    io.emit('ride:status:update', {
+      rideId,
+      status: 'cancelled',
+      driverId: null,
+    });
+
+    res.json({ message: 'Ride cancelled' });
+  } catch (err) {
+    console.error('Error cancelling ride', err);
+    res.status(500).json({ error: 'Failed to cancel ride' });
+  }
+});
+
+
+
+async function findAndNotifyDrivers(newRide) {
+try {
+// 1. Find all drivers who are currently 'online'
+const [onlineDrivers] = await pool.query(
+"SELECT id FROM drivers WHERE status = 'online'"
+);
+
+if (onlineDrivers.length === 0) {
+console.log("No online drivers found to notify for new ride.");
+return;
+}
+
+const onlineDriverIds = onlineDrivers.map(d => d.id);
+console.log(`Found online drivers to notify: ${onlineDriverIds.join(', ')}`);
+
+// 2. Get all connected socket clients from the main namespace
+const allSockets = await io.fetchSockets();
+
+// 3. Filter for sockets that belong to an online driver and emit the event
+allSockets.forEach(socket => {
+const driverId = socket.data.driverId;
+if (driverId && onlineDriverIds.includes(driverId)) {
+console.log(`Notifying driver ${driverId} (socket ${socket.id}) of new ride ${newRide.id}`);
+socket.emit("ride:incoming", newRide);
+}
+});
+
+} catch (err) {
+console.error("Error in findAndNotifyDrivers:", err);
+}
+}
 
 
 // ---------- SOCKET.IO HANDLERS (realtime) ----------

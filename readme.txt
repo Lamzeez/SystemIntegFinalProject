@@ -39,3 +39,6 @@ set location permission in app.json:
     "NSLocationWhenInUseUsageDescription": "This app uses your location to find nearby rides."
   }
 }
+
+IO Socket:
+npm install socket.io-client
