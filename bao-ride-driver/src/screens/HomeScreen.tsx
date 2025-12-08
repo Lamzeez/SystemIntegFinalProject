@@ -8,7 +8,7 @@ import { getSocket } from "../socket";
 export default function HomeScreen({
   onRideAssigned,
 }: {
-  onRideAssigned: (id: number) => void;
+  onRideAssigned: (ride: any) => void;
 }) {
   const { user, logout } = useAuth();
   const [status, setStatus] = useState<"online" | "offline" | "on_trip">(
@@ -16,11 +16,11 @@ export default function HomeScreen({
   );
   const [msg, setMsg] = useState("");
 
-  // Load driver profile (to get current status)
   useEffect(() => {
     const loadProfile = async () => {
       try {
         const res = await api.get("/driver/profile");
+        console.log("Driver profile:", res.data);
         setStatus(res.data.driver?.status || "offline");
       } catch (e) {
         console.log("Failed to load driver profile", e);
@@ -29,28 +29,29 @@ export default function HomeScreen({
     loadProfile();
   }, []);
 
-  // WebSocket: listen for incoming rides + check if there's already one
   useEffect(() => {
     const socket = getSocket();
+    console.log("Driver HomeScreen: socket connected?", socket.connected);
 
     const handleIncoming = (ride: any) => {
-      // This WS event is already filtered per-driver on the backend
+      console.log("Received ride:incoming on driver:", ride);
       setMsg(
         `Incoming ride from ${
           ride.passenger_name || ride.passenger_id || "passenger"
         }`
       );
-      onRideAssigned(ride.id);
+      onRideAssigned(ride); // pass whole ride, not just id
     };
 
     socket.on("ride:incoming", handleIncoming);
 
-    // Also check current ride from REST (in case app was closed then reopened)
+    // For the "reopen app mid-ride" case
     const checkCurrent = async () => {
       try {
         const res = await api.get("/driver/rides/current");
         if (res.data.ride?.id) {
-          onRideAssigned(res.data.ride.id);
+          console.log("Driver already has active ride:", res.data.ride.id);
+          onRideAssigned(res.data.ride);
         }
       } catch (e) {
         console.log("Failed to check current ride", e);
@@ -66,6 +67,7 @@ export default function HomeScreen({
   const setDriverStatus = async (newStatus: "online" | "offline") => {
     try {
       const res = await api.post("/driver/status", { status: newStatus });
+      console.log("Driver status response:", res.data);
       setStatus(res.data.status);
       setMsg(`Status updated to ${res.data.status}`);
     } catch (e: any) {

@@ -24,17 +24,18 @@ export default function LoginScreen({
         return;
       }
 
-      // Save auth state
       await login(res.data.token, res.data.user);
 
-      // Authenticate this socket as a driver
       const socket = getSocket();
+      console.log("Driver login: emitting auth:driver");
       socket.emit("auth:driver", { token: res.data.token });
 
-      // Check if driver already has an active ride
+      // Check if this driver already has an active ride
       try {
         const current = await api.get("/driver/rides/current");
-        onLoginRideCheck(current.data.ride?.id || null);
+        const id = current.data.ride?.id || null;
+        console.log("Current driver ride after login:", id);
+        onLoginRideCheck(id);
       } catch (e) {
         console.log("Failed to check current ride after login", e);
         onLoginRideCheck(null);

@@ -6,15 +6,21 @@ import { getSocket } from "../socket";
 
 export default function RideScreen({
   rideId,
+  initialRide,
   onEndRide,
 }: {
   rideId: number;
+  initialRide?: any | null;
   onEndRide: () => void;
 }) {
-  const [ride, setRide] = useState<any>(null);
+  const [ride, setRide] = useState<any | null>(initialRide ?? null);
 
-  // Load current ride details
+  // Only fetch from backend if we don't already have ride details
   useEffect(() => {
+    if (initialRide) {
+      return;
+    }
+
     const load = async () => {
       try {
         const res = await api.get("/driver/rides/current");
@@ -26,7 +32,7 @@ export default function RideScreen({
       }
     };
     load();
-  }, []);
+  }, [initialRide]);
 
   // Listen for ride status updates (completed / cancelled)
   useEffect(() => {
