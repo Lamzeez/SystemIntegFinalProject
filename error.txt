@@ -1,0 +1,12 @@
+AppEntry.bundle?plat…ermes-stable:114728 Uncaught TypeError: (0 , _reactNativeWebDistIndex.codegenNativeComponent) is not a function
+    at AppEntry.bundle?plat…es-stable:114728:70
+    at loadModuleImplementation (AppEntry.bundle?plat…ermes-stable:254:34)
+    at guardedLoadModule (AppEntry.bundle?plat…ermes-stable:166:14)
+    at metroRequire (AppEntry.bundle?plat…hermes-stable:79:75)
+    at AppEntry.bundle?plat…es-stable:114571:44
+    at loadModuleImplementation (AppEntry.bundle?plat…ermes-stable:254:34)
+    at guardedLoadModule (AppEntry.bundle?plat…ermes-stable:166:14)
+    at metroRequire (AppEntry.bundle?plat…hermes-stable:79:75)
+    at AppEntry.bundle?plat…es-stable:114350:31
+    at loadModuleImplementation (AppEntry.bundle?plat…ermes-stable:254:34)
+﻿

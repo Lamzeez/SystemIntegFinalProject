@@ -1,0 +1,58 @@
+// @suggested_answers/backend-register-passenger.js.txt
+// This file contains the suggested addition to bao-ride-backend/index.js
+// Please add this new endpoint within the "AUTH ROUTES" section,
+// ideally right after the existing '/auth/login' endpoint.
+
+/*
+// New endpoint for passenger registration
+*/
+app.post('/auth/register/passenger', async (req, res) => {
+  const { name, email, phone, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required' });
+  }
+
+  try {
+    const password_hash = await bcrypt.hash(password, 10);
+
+    // Check if email already exists
+    const [existingUsers] = await pool.query(
+      'SELECT id FROM users WHERE email = ? LIMIT 1',
+      [email]
+    );
+
+    if (existingUsers.length > 0) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    // Create user with 'passenger' role
+    const [userResult] = await pool.query(
+      'INSERT INTO users (name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, "passenger")',
+      [name, email, phone || null, password_hash]
+    );
+
+    const userId = userResult.insertId;
+
+    // Generate token for the newly registered passenger
+    const token = generateToken({
+      id: userId,
+      name,
+      email,
+      role: 'passenger',
+    });
+
+    res.status(201).json({
+      token,
+      user: {
+        id: userId,
+        name,
+        email,
+        role: 'passenger',
+      },
+    });
+  } catch (err) {
+    console.error('Passenger registration error', err);
+    res.status(500).json({ error: 'Failed to register passenger' });
+  }
+});

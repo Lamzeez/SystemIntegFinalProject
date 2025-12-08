@@ -1,0 +1,68 @@
+// @suggested_answers/App_SINGLE_NAVIGATOR.tsx.txt
+// This version uses a single navigator, which is a more robust pattern.
+
+import 'react-native-gesture-handler';
+import React from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+import { AuthProvider, useAuth } from './src/AuthContext';
+import LoginScreen from './src/screens/LoginScreen';
+import RegisterScreen from './src/screens/RegisterScreen';
+import HomeScreen from './src/screens/HomeScreen';
+import { ActivityIndicator, View, StyleSheet } from 'react-native';
+
+// We will use only one Stack Navigator for the entire app.
+const RootStack = createStackNavigator();
+
+function AppContent() {
+  const { token, isLoading } = useAuth();
+
+  if (isLoading) {
+    // We haven't finished checking for the token yet
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0000ff" />
+      </View>
+    );
+  }
+
+  return (
+    // The screens inside the navigator are now conditional
+    <RootStack.Navigator screenOptions={{ headerShown: false }}>
+      {token == null ? (
+        // No token found, user isn't signed in. Show auth screens.
+        <>
+          <RootStack.Screen
+            name="Login"
+            component={LoginScreen}
+          />
+          <RootStack.Screen
+            name="Register"
+            component={RegisterScreen}
+          />
+        </>
+      ) : (
+        // User is signed in. Show main app screen.
+        <RootStack.Screen name="Home" component={HomeScreen} />
+      )}
+    </RootStack.Navigator>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <NavigationContainer>
+        <AppContent />
+      </NavigationContainer>
+    </AuthProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

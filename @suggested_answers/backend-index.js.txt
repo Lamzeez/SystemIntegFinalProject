@@ -1,3 +1,6 @@
+// @suggested_answers/backend-index.js.txt
+// This file contains the suggested changes for bao-ride-backend/index.js
+
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -622,107 +625,6 @@ app.post('/auth/login', async (req, res) => {
   } catch (err) {
     console.error('Login error', err);
     res.status(500).json({ error: 'Login failed' });
-  }
-});
-
-// New endpoint for passenger registration
-app.post('/auth/register/passenger', async (req, res) => {
-  const { name, email, phone, password } = req.body;
-
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'Name, email, and password are required' });
-  }
-
-  try {
-    const password_hash = await bcrypt.hash(password, 10);
-
-    // Check if email already exists
-    const [existingUsers] = await pool.query(
-      'SELECT id FROM users WHERE email = ? LIMIT 1',
-      [email]
-    );
-
-    if (existingUsers.length > 0) {
-      return res.status(409).json({ error: 'Email already registered' });
-    }
-
-    // Create user with 'passenger' role
-    const [userResult] = await pool.query(
-      'INSERT INTO users (name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, "passenger")',
-      [name, email, phone || null, password_hash]
-    );
-
-    const userId = userResult.insertId;
-
-    // Generate token for the newly registered passenger
-    const token = generateToken({
-      id: userId,
-      name,
-      email,
-      role: 'passenger',
-    });
-
-    res.status(201).json({
-      token,
-      user: {
-        id: userId,
-        name,
-        email,
-        role: 'passenger',
-      },
-    });
-  } catch (err) {
-    console.error('Passenger registration error', err);
-    res.status(500).json({ error: 'Failed to register passenger' });
-  }
-});
-
-
-// ---------- PASSENGER API ----------
-
-// Request a new ride
-app.post('/rides/request', authenticateToken, async (req, res) => {
-  const { pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address } = req.body;
-
-  if (!pickup_lat || !pickup_lng || !dropoff_lat || !dropoff_lng || !pickup_address || !dropoff_address) {
-    return res.status(400).json({ error: 'Pickup and dropoff coordinates and addresses are required' });
-  }
-
-  try {
-    const passengerId = req.user.id;
-    // Ensure the authenticated user is a passenger
-    if (req.user.role !== 'passenger') {
-      return res.status(403).json({ error: 'Only passengers can request rides' });
-    }
-
-    // Calculate estimated distance and fare (optional, but good for UX)
-    const estimatedDistanceKm = calculateDistanceKm(
-      Number(pickup_lat),
-      Number(pickup_lng),
-      Number(dropoff_lat),
-      Number(dropoff_lng)
-    );
-    const estimatedFare = calculateFareFromDistance(estimatedDistanceKm);
-
-    const [result] = await pool.query(
-      `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address, status, estimated_fare, estimated_distance_km)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?)`,
-      [passengerId, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address, estimatedFare, estimatedDistanceKm]
-    );
-
-    const rideId = result.insertId;
-
-    // Fetch the newly created ride
-    const [rows] = await pool.query('SELECT * FROM rides WHERE id = ?', [rideId]);
-    const newRide = rows[0];
-
-    // TODO: Emit a socket event to notify available drivers about the new ride request
-    // This will be part of the next steps: "Notify Drivers of New Rides"
-
-    res.status(201).json({ message: 'Ride requested successfully', ride: newRide });
-  } catch (err) {
-    console.error('Error requesting ride', err);
-    res.status(500).json({ error: 'Failed to request ride' });
   }
 });
 

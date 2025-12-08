@@ -1,0 +1,52 @@
+// @suggested_answers/backend-request-ride.js.txt
+// This file contains the suggested addition to bao-ride-backend/index.js
+// Please add this new endpoint within the "REST ENDPOINTS" section,
+// perhaps under a new "---------- PASSENGER API ----------" comment.
+
+// ---------- PASSENGER API ----------
+
+// Request a new ride
+app.post('/rides/request', authenticateToken, async (req, res) => {
+  const { pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address } = req.body;
+
+  if (!pickup_lat || !pickup_lng || !dropoff_lat || !dropoff_lng || !pickup_address || !dropoff_address) {
+    return res.status(400).json({ error: 'Pickup and dropoff coordinates and addresses are required' });
+  }
+
+  try {
+    const passengerId = req.user.id;
+    // Ensure the authenticated user is a passenger
+    if (req.user.role !== 'passenger') {
+      return res.status(403).json({ error: 'Only passengers can request rides' });
+    }
+
+    // Calculate estimated distance and fare (optional, but good for UX)
+    const estimatedDistanceKm = calculateDistanceKm(
+      Number(pickup_lat),
+      Number(pickup_lng),
+      Number(dropoff_lat),
+      Number(dropoff_lng)
+    );
+    const estimatedFare = calculateFareFromDistance(estimatedDistanceKm);
+
+    const [result] = await pool.query(
+      `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address, status, estimated_fare, estimated_distance_km)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?)`,
+      [passengerId, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address, estimatedFare, estimatedDistanceKm]
+    );
+
+    const rideId = result.insertId;
+
+    // Fetch the newly created ride
+    const [rows] = await pool.query('SELECT * FROM rides WHERE id = ?', [rideId]);
+    const newRide = rows[0];
+
+    // TODO: Emit a socket event to notify available drivers about the new ride request
+    // This will be part of the next steps: "Notify Drivers of New Rides"
+
+    res.status(201).json({ message: 'Ride requested successfully', ride: newRide });
+  } catch (err) {
+    console.error('Error requesting ride', err);
+    res.status(500).json({ error: 'Failed to request ride' });
+  }
+});

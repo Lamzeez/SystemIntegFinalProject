@@ -1,0 +1,23 @@
+Big-picture architecture
+Clients
+•	Passenger app – Expo React Native
+o	Request ride, see driver on map, track status, history
+•	Driver app – Expo React Native
+o	Go online/offline, accept rides, share live location, see earnings
+•	Admin dashboard – Web (React)
+o	Your screenshots: stats, recent rides, driver management, services, etc.
+Why web for admin?
+Admins usually work on laptop/desktop. It’s much easier to make a dashboard with React for web, and your design already looks like a web app. Passenger & driver stay as mobile apps with Expo.
+Backend
+•	NodeJS (Express) REST API
+o	Auth (Admin / Driver / Passenger)
+o	CRUD for users, drivers, rides, pricing, etc.
+o	Dashboard endpoints (totals, recent rides, etc.)
+•	WebSocket layer (e.g. socket.io)
+o	Realtime ride state (requested, assigned, in_progress, completed)
+o	Realtime driver locations
+o	Notify admin dashboard of active rides in real time
+•	MySQL database
+o	Persistent storage (users, rides, payments, etc.)
+•	Ngrok
+o	Exposes your local Node server to the internet so your phone (Expo app) and anyone else’s device can hit https://<random>.ngrok.io.
