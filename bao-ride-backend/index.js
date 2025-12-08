@@ -738,7 +738,14 @@ app.post('/rides/request', authenticateToken, async (req, res) => {
     // TODO: Emit a socket event to notify available drivers about the new ride request
     // This will be part of the next steps: "Notify Drivers of New Rides"
 
-    res.status(201).json({ message: 'Ride requested successfully', ride: newRide });
+    res.status(201).json({
+    message: 'Ride requested successfully',
+    ride: {
+      ...newRide,
+      estimated_fare: estimatedFare,
+      estimated_distance_km: estimatedDistanceKm,
+    },
+  });
   } catch (err) {
     console.error('Error requesting ride', err);
     res.status(500).json({ error: 'Failed to request ride' });

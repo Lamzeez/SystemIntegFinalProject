@@ -62,7 +62,6 @@ export default function HomeScreen({
 
   try {
     const res = await api.post("/rides/request", {
-      // TEMP: hard-coded coordinates for demo
       pickup_lat: 14.5995,
       pickup_lng: 120.9842,
       dropoff_lat: 14.6091,
@@ -71,30 +70,22 @@ export default function HomeScreen({
       dropoff_address: destination,
     });
 
-    const newRideId = res.data.ride?.id;
-    if (newRideId) {
-      setMsg("Ride requested! Searching for a driver...");
-      onRideCreated(newRideId);
+    const ride = res.data.ride;
+    if (ride?.id) {
+      setMsg(
+        `Ride requested! Estimated distance: ${ride.estimated_distance_km?.toFixed(
+          1
+        )} km, fare: ₱${ride.estimated_fare}`
+      );
+      onRideCreated(ride); // pass the whole ride
     } else {
       setMsg("Ride requested, but no ride ID returned.");
     }
   } catch (err: any) {
-    if (axios.isAxiosError(err)) {
-      console.log(
-        "Ride request failed:",
-        err.response?.status,
-        err.response?.data
-      );
-      setMsg(
-        err.response?.data?.error ||
-          `Request failed (${err.response?.status || "no response"})`
-      );
-    } else {
-      console.log("Unexpected error requesting ride", err);
-      setMsg("Unexpected error requesting ride.");
-    }
+    // ...
   }
 };
+
 
 
 

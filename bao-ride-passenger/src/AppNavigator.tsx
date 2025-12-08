@@ -1,4 +1,4 @@
-// src/AppNavigator.tsx
+// passenger src/AppNavigator.tsx
 import React, { useState } from "react";
 import { useAuth } from "./AuthContext";
 import LoginScreen from "./screens/LoginScreen";
@@ -8,31 +8,42 @@ import RideScreen from "./screens/RideScreen";
 export default function AppNavigator() {
   const { user } = useAuth();
   const [activeRideId, setActiveRideId] = useState<number | null>(null);
+  const [activeRide, setActiveRide] = useState<any | null>(null);
 
-  // Not logged in → show login
   if (!user) {
     return (
       <LoginScreen
-        onLoginRideCheck={(rideId) => setActiveRideId(rideId)}
+        onLoginRideCheck={(rideId) => {
+          setActiveRideId(rideId);
+          setActiveRide(null);
+        }}
       />
     );
   }
 
-  // Logged in and has active ride → show ride screen
   if (activeRideId) {
     return (
       <RideScreen
         rideId={activeRideId}
-        onEndRide={() => setActiveRideId(null)}
+        initialRide={activeRide}
+        onEndRide={() => {
+          setActiveRideId(null);
+          setActiveRide(null);
+        }}
       />
     );
   }
 
-  // Logged in but no active ride → home
   return (
     <HomeScreen
-      onRideCreated={(id) => setActiveRideId(id)}
-      onActiveRideDetected={(id) => setActiveRideId(id)}
+      onRideCreated={(ride: any) => {
+        setActiveRideId(ride.id);
+        setActiveRide(ride);
+      }}
+      onActiveRideDetected={(ride: any) => {
+        setActiveRideId(ride.id);
+        setActiveRide(ride);
+      }}
     />
   );
 }

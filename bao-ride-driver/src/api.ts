@@ -1,7 +1,7 @@
 // src/api.ts
 import axios from "axios";
 
-export const BASE_URL = "http://localhost:4000"; // or your ngrok URL
+export const BASE_URL = "http://localhost:4000"; // or ngrok URL
 
 // Internal token storage
 let authToken: string | null = null;
