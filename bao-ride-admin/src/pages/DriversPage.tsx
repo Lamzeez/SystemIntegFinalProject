@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api";
+import { getSocket } from "../socket";
 
 type Driver = {
   id: number;
@@ -60,6 +61,24 @@ export default function DriversPage() {
   useEffect(() => {
     loadDrivers();
   }, []);
+
+  useEffect(() => {
+    // Subscribe to driver status updates
+    const socket = getSocket();
+
+    const handleStatusUpdate = () => {
+      console.log("Driver status changed – reloading drivers list");
+      loadDrivers();
+    };
+
+    socket.on("driver:status:update", handleStatusUpdate);
+
+    // Cleanup when component unmounts
+    return () => {
+      socket.off("driver:status:update", handleStatusUpdate);
+    };
+  }, []);
+
 
   const handleChange = (field: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
