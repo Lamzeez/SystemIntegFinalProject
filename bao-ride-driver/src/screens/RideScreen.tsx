@@ -1,6 +1,6 @@
 // bao-ride-driver/src/screens/RideScreen.tsx (DRIVER VERSION)
 import React, { useEffect, useState } from "react";
-import { View, Text, Button, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Alert } from "react-native";
 import { api } from "../api";
 import { getSocket } from "../socket";
 import MapView, { Marker, Polyline, Region } from "react-native-maps";
@@ -281,6 +281,19 @@ export default function RideScreen({
     longitudeDelta: 0.05,
   };
 
+  const statusLabels: Record<string, string> = {
+    requested: "Requested",
+    assigned: "Assigned",
+    in_progress: "In progress...",
+    completed: "Completed",
+    cancelled: "Cancelled",
+  };
+
+  function displayStatus() {
+    return statusLabels[statusText] ?? statusText;
+  }
+
+
   return (
     <View style={{ flex: 1 }}>
       {/* Map with route line */}
@@ -320,26 +333,88 @@ export default function RideScreen({
         <Text>Passenger: {ride.passenger_name ?? "Unknown passenger"}</Text>
         <Text>Pickup: {ride.pickup_address}</Text>
         <Text>Dropoff: {ride.dropoff_address}</Text>
-        <Text>Status: {statusText}</Text>
+        <Text>Status: {displayStatus()}</Text>
         <Text>Distance: {displayDistance()}</Text>
         <Text>
           Total fare: {totalFare != null ? `₱${totalFare}` : "₱--"}
         </Text>
 
-        <View style={{ marginTop: 12 }}>
+        {/* Actions */}
+        <View style={{ marginTop: 12, marginBottom: 30 }}>
           {statusText === "requested" && (
-            <Button title="ACCEPT RIDE" onPress={acceptRide} />
+            <TouchableOpacity
+              onPress={acceptRide}
+              activeOpacity={0.7}
+              style={{
+                paddingVertical: 12,
+                borderRadius: 4,
+                alignItems: "center",
+                backgroundColor: "#2E7D32", // primary action (green-ish)
+                marginBottom: 8,
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "bold", fontSize: 16 }}>
+                ACCEPT RIDE
+              </Text>
+            </TouchableOpacity>
           )}
+
           {statusText === "assigned" && (
-            <Button title="START RIDE" onPress={startRide} />
+            <TouchableOpacity
+              onPress={startRide}
+              activeOpacity={0.7}
+              style={{
+                paddingVertical: 12,
+                borderRadius: 4,
+                alignItems: "center",
+                backgroundColor: "#2E7D32",
+                marginBottom: 8,
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "bold", fontSize: 16 }}>
+                START RIDE
+              </Text>
+            </TouchableOpacity>
           )}
+
           {statusText === "in_progress" && (
-            <Button title="COMPLETE RIDE" onPress={completeRide} />
+            <TouchableOpacity
+              onPress={completeRide}
+              activeOpacity={0.7}
+              style={{
+                paddingVertical: 12,
+                borderRadius: 4,
+                alignItems: "center",
+                backgroundColor: "#2E7D32",
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "bold", fontSize: 16 }}>
+                COMPLETE RIDE
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
-        <View style={{ marginTop: 12, marginBottom: 40}}>
-          <Button title="Back to Home" onPress={onBack} />
-        </View>
+
+        {/* Back to Home: only before a ride is accepted */}
+        {statusText === "requested" && (
+          <View style={{ marginBottom: 40 }}>
+            <TouchableOpacity
+              onPress={onBack}
+              activeOpacity={0.7}
+              style={{
+                paddingVertical: 12,
+                borderRadius: 4,
+                alignItems: "center",
+                backgroundColor: "#1976D2", // keep it blue-ish, simple primary
+              }}
+            >
+              <Text style={{ color: "white", fontWeight: "bold", fontSize: 16 }}>
+                Back to Home
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
       </View>
     </View>
   );

@@ -66,9 +66,6 @@ function computeFare(distanceKm) {
   return baseFare + extraUnits * extraPerKm;
 }
 
-
-
-
 app.use(cors());
 app.use(express.json());
 
@@ -133,7 +130,6 @@ function calculateFareFromDistance(distanceKm) {
   return MIN_FARE + extraKm * EXTRA_PER_KM;
 }
 
-
 async function getDriverForUser(userId) {
   const [rows] = await pool.query(
     'SELECT * FROM drivers WHERE user_id = ? LIMIT 1',
@@ -146,8 +142,6 @@ async function getDriverForUser(userId) {
   }
   return rows[0]; // { id, user_id, vehicle_plate, vehicle_model, status }
 }
-
-
 
 // ---------- REST ENDPOINTS (example for admin dashboard) ----------
 
@@ -474,8 +468,6 @@ app.get(
   }
 );
 
-
-
 // Driver accepts a ride
 app.post(
   '/driver/rides/:id/accept',
@@ -513,22 +505,32 @@ app.post(
         });
       }
 
+      // ⭐ ADDED: fetch driver_name from users table
+      const [[driverUser]] = await pool.query(
+        'SELECT name FROM users WHERE id = ? LIMIT 1',
+        [userId]
+      );
+      const driverName = driverUser ? driverUser.name : null;
+
       // Emit status update ONLY AFTER a successful assignment
       io.emit('ride:status:update', {
         rideId: Number(rideId),
         status: 'assigned',
         driverId: driver.id,
+        driver_name: driverName, // ⭐ ADDED
       });
 
-      return res.json({ message: 'Ride accepted' });
+      return res.json({
+        message: 'Ride accepted',
+        driverId: driver.id,
+        driver_name: driverName, // optional but useful
+      });
     } catch (err) {
       console.error('Error accepting ride', err);
       return res.status(500).json({ error: 'Failed to accept ride' });
     }
   }
 );
-
-
 
 // Driver starts the ride (picked up passenger)
 app.post(
@@ -655,10 +657,6 @@ app.post(
   }
 );
 
-
-
-
-
 // ---------- RIDES MANAGEMENT (ADMIN) ----------
 
 // List rides with optional ?status=
@@ -696,8 +694,7 @@ app.get('/admin/rides', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-
-
+// ⭐ UPDATED: include driver_name for passenger current ride
 app.get('/passenger/rides/current', authenticateToken, async (req, res) => {
   if (req.user.role !== 'passenger') {
     return res.status(403).json({ error: 'Only passengers can view rides' });
@@ -705,10 +702,14 @@ app.get('/passenger/rides/current', authenticateToken, async (req, res) => {
 
   const passengerId = req.user.id;
   const [rows] = await pool.query(
-    `SELECT * FROM rides
-     WHERE passenger_id = ?
-       AND status IN ('requested','assigned','in_progress')
-     ORDER BY updated_at DESC
+    `SELECT r.*,
+            u.name AS driver_name
+     FROM rides r
+     LEFT JOIN drivers d ON r.driver_id = d.id
+     LEFT JOIN users u ON d.user_id = u.id
+     WHERE r.passenger_id = ?
+       AND r.status IN ('requested','assigned','in_progress')
+     ORDER BY r.updated_at DESC
      LIMIT 1`,
     [passengerId]
   );
@@ -716,8 +717,6 @@ app.get('/passenger/rides/current', authenticateToken, async (req, res) => {
   res.json({ ride: rows[0] || null });
 });
 
-
-// (Later: add /auth/login, /drivers, /rides, etc.)
 // ---------- AUTH ROUTES ----------
 
 app.post('/auth/login', async (req, res) => {
@@ -810,7 +809,6 @@ app.post('/auth/register/passenger', async (req, res) => {
     res.status(500).json({ error: 'Failed to register passenger' });
   }
 });
-
 
 // ---------- PASSENGER API ----------
 
@@ -911,9 +909,6 @@ app.post(
   }
 );
 
-
-
-
 // Passenger cancels a ride
 app.post('/rides/:id/cancel', authenticateToken, async (req, res) => {
   try {
@@ -955,40 +950,37 @@ app.post('/rides/:id/cancel', authenticateToken, async (req, res) => {
   }
 });
 
-
-
 async function findAndNotifyDrivers(newRide) {
-try {
-// 1. Find all drivers who are currently 'online'
-const [onlineDrivers] = await pool.query(
-"SELECT id FROM drivers WHERE status = 'online'"
-);
+  try {
+    // 1. Find all drivers who are currently 'online'
+    const [onlineDrivers] = await pool.query(
+      "SELECT id FROM drivers WHERE status = 'online'"
+    );
 
-if (onlineDrivers.length === 0) {
-console.log("No online drivers found to notify for new ride.");
-return;
+    if (onlineDrivers.length === 0) {
+      console.log("No online drivers found to notify for new ride.");
+      return;
+    }
+
+    const onlineDriverIds = onlineDrivers.map(d => d.id);
+    console.log(`Found online drivers to notify: ${onlineDriverIds.join(', ')}`);
+
+    // 2. Get all connected socket clients from the main namespace
+    const allSockets = await io.fetchSockets();
+
+    // 3. Filter for sockets that belong to an online driver and emit the event
+    allSockets.forEach(socket => {
+      const driverId = socket.data.driverId;
+      if (driverId && onlineDriverIds.includes(driverId)) {
+        console.log(`Notifying driver ${driverId} (socket ${socket.id}) of new ride ${newRide.id}`);
+        socket.emit("ride:incoming", newRide);
+      }
+    });
+
+  } catch (err) {
+    console.error("Error in findAndNotifyDrivers:", err);
+  }
 }
-
-const onlineDriverIds = onlineDrivers.map(d => d.id);
-console.log(`Found online drivers to notify: ${onlineDriverIds.join(', ')}`);
-
-// 2. Get all connected socket clients from the main namespace
-const allSockets = await io.fetchSockets();
-
-// 3. Filter for sockets that belong to an online driver and emit the event
-allSockets.forEach(socket => {
-const driverId = socket.data.driverId;
-if (driverId && onlineDriverIds.includes(driverId)) {
-console.log(`Notifying driver ${driverId} (socket ${socket.id}) of new ride ${newRide.id}`);
-socket.emit("ride:incoming", newRide);
-}
-});
-
-} catch (err) {
-console.error("Error in findAndNotifyDrivers:", err);
-}
-}
-
 
 // ---------- SOCKET.IO HANDLERS (realtime) ----------
 
@@ -1029,84 +1021,71 @@ io.on('connection', (socket) => {
     }
   });
 
-  // socket.on('disconnect', () => {
-  //   console.log('Client disconnected', socket.id);
-  // });
-
   socket.on("auth:driver", async ({ token }) => {
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (decoded.role !== "driver") {
-      socket.emit("auth:error", { error: "Not a driver account" });
-      return;
+      if (decoded.role !== "driver") {
+        socket.emit("auth:error", { error: "Not a driver account" });
+        return;
+      }
+
+      const userId = decoded.id;
+
+      // Find actual driver row
+      const [rows] = await pool.query(
+        "SELECT id FROM drivers WHERE user_id = ? LIMIT 1",
+        [userId]
+      );
+
+      if (!rows.length) {
+        socket.emit("auth:error", { error: "Driver record not found" });
+        return;
+      }
+
+      const driverId = rows[0].id;
+
+      socket.data.userId = userId;
+      socket.data.driverId = driverId;
+
+      console.log(`Driver ${driverId} connected via WS`);
+
+      // (We intentionally do NOT auto-set online here.)
+
+      socket.emit("auth:success", { driverId });
+    } catch (err) {
+      console.error("Driver WS auth failed", err);
+      socket.emit("auth:error", { error: "Invalid token" });
     }
 
-    const userId = decoded.id;
+    socket.on("disconnect", async () => {
+      if (socket.data?.driverId) {
+        const driverId = socket.data.driverId;
 
-    // Find actual driver row
-    const [rows] = await pool.query(
-      "SELECT id FROM drivers WHERE user_id = ? LIMIT 1",
-      [userId]
-    );
+        await pool.query("UPDATE drivers SET status = 'offline' WHERE id = ?", [
+          driverId,
+        ]);
 
-    if (!rows.length) {
-      socket.emit("auth:error", { error: "Driver record not found" });
-      return;
-    }
+        io.emit("driver:status:update", {
+          driverId,
+          status: "offline",
+        });
 
-    const driverId = rows[0].id;
+        console.log(`Driver ${driverId} disconnected`);
+      }
+    });
 
-    socket.data.userId = userId;
-    socket.data.driverId = driverId;
-
-    console.log(`Driver ${driverId} connected via WS`);
-
-    // --- SUGGESTED CHANGE START ---
-    // Do not automatically set the driver to 'online'. The driver should
-    // manually set their status via a button in the app.
-
-    // await pool.query("UPDATE drivers SET status = 'online' WHERE id = ?", [
-    //   driverId,
-    // ]);
-    //
-    // io.emit("driver:status:update", { driverId, status: "online" });
-    // --- SUGGESTED CHANGE END ---
-
-
-    socket.emit("auth:success", { driverId });
-  } catch (err) {
-    console.error("Driver WS auth failed", err);
-    socket.emit("auth:error", { error: "Invalid token" });
-  }
-
-  socket.on("disconnect", async () => {
-    if (socket.data?.driverId) {
-      const driverId = socket.data.driverId;
-
-      await pool.query("UPDATE drivers SET status = 'offline' WHERE id = ?", [
-        driverId,
-      ]);
-
-      io.emit("driver:status:update", {
-        driverId,
-        status: "offline",
-      });
-
-      console.log(`Driver ${driverId} disconnected`);
+    // Send ride request to a specific driver
+    function sendRideToDriver(driverId, rideData) {
+      for (const [id, socket] of io.of("/").sockets) {
+        if (socket.data?.driverId === driverId) {
+          socket.emit("ride:incoming", rideData);
+        }
+      }
     }
   });
 
-  // Send ride request to a specific driver
-  function sendRideToDriver(driverId, rideData) {
-    for (const [id, socket] of io.of("/").sockets) {
-      if (socket.data?.driverId === driverId) {
-        socket.emit("ride:incoming", rideData);
-      }
-    }
-  }
-});
-  
+  // ⭐ UPDATED: include driver_name in WS accept event too
   socket.on("ride:accept", async ({ rideId }) => {
     const driverId = socket.data?.driverId;
     if (!driverId) return;
@@ -1114,10 +1093,10 @@ io.on('connection', (socket) => {
     // Accept ride using same logic as the HTTP endpoint
     const [result] = await pool.query(
       `UPDATE rides
-      SET status = 'assigned', driver_id = ?
-      WHERE id = ?
-        AND status IN ('requested','assigned')
-        AND (driver_id IS NULL OR driver_id = ?)`,
+       SET status = 'assigned', driver_id = ?
+       WHERE id = ?
+         AND status IN ('requested','assigned')
+         AND (driver_id IS NULL OR driver_id = ?)`,
       [driverId, rideId, driverId]
     );
 
@@ -1126,23 +1105,34 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Fetch driver_name via join
+    const [[driverUser]] = await pool.query(
+      `SELECT u.name
+       FROM drivers d
+       JOIN users u ON d.user_id = u.id
+       WHERE d.id = ?
+       LIMIT 1`,
+      [driverId]
+    );
+    const driverName = driverUser ? driverUser.name : null;
+
     io.emit("ride:status:update", {
       rideId,
       status: "assigned",
       driverId,
+      driver_name: driverName, // ⭐ ADDED
     });
 
     socket.emit("ride:accept:success", { rideId });
   });
 
-  
   socket.on("ride:start", async ({ rideId }) => {
     const driverId = socket.data?.driverId;
     if (!driverId) return;
 
     const [result] = await pool.query(
       `UPDATE rides SET status='in_progress'
-      WHERE id=? AND driver_id=? AND status='assigned'`,
+       WHERE id=? AND driver_id=? AND status='assigned'`,
       [rideId, driverId]
     );
 
@@ -1156,50 +1146,48 @@ io.on('connection', (socket) => {
   });
 
   socket.on("ride:complete", async ({ rideId }) => {
-  const driverId = socket.data?.driverId;
-  if (!driverId) return;
+    const driverId = socket.data?.driverId;
+    if (!driverId) return;
 
-  const [rows] = await pool.query(
-    "SELECT * FROM rides WHERE id = ? AND driver_id = ? AND status='in_progress' LIMIT 1",
-    [rideId, driverId]
-  );
+    const [rows] = await pool.query(
+      "SELECT * FROM rides WHERE id = ? AND driver_id = ? AND status='in_progress' LIMIT 1",
+      [rideId, driverId]
+    );
 
-  if (!rows.length) return;
+    if (!rows.length) return;
 
-  const ride = rows[0];
+    const ride = rows[0];
 
-  const distance = calculateDistanceKm(
-    Number(ride.pickup_lat),
-    Number(ride.pickup_lng),
-    Number(ride.dropoff_lat),
-    Number(ride.dropoff_lng)
-  );
+    const distance = calculateDistanceKm(
+      Number(ride.pickup_lat),
+      Number(ride.pickup_lng),
+      Number(ride.dropoff_lat),
+      Number(ride.dropoff_lng)
+    );
 
-  const fare = calculateFareFromDistance(distance);
+    const fare = calculateFareFromDistance(distance);
 
-  await pool.query(
-    `UPDATE rides
-     SET status='completed',
-         fare = ?,
-         distance_km = ?,
-         final_fare = ?,
-         final_distance_km = ?
-     WHERE id=?`,
-    [fare, distance, fare, distance, rideId]
-  );
+    await pool.query(
+      `UPDATE rides
+       SET status='completed',
+           fare = ?,
+           distance_km = ?,
+           final_fare = ?,
+           final_distance_km = ?
+       WHERE id=?`,
+      [fare, distance, fare, distance, rideId]
+    );
 
-  io.emit("ride:status:update", {
-    rideId,
-    status: "completed",
-    driverId,
-    distanceKm: distance,
-    fare,
-    final_fare: fare,
-    final_distance_km: distance,
+    io.emit("ride:status:update", {
+      rideId,
+      status: "completed",
+      driverId,
+      distanceKm: distance,
+      fare,
+      final_fare: fare,
+      final_distance_km: distance,
+    });
   });
-});
-
-
 });
 
 // ---------- START SERVER ----------

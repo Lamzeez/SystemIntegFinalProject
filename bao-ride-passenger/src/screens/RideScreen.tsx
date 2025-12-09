@@ -1,6 +1,6 @@
 // src/screens/RideScreen.tsx (PASSENGER)
 import React, { useEffect, useState } from "react";
-import { View, Text, Button, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Alert } from "react-native";
 import { api } from "../api";
 import { getSocket } from "../socket";
 import MapView, { Marker, Polyline, Region } from "react-native-maps";
@@ -17,6 +17,7 @@ type Ride = {
   estimated_fare?: number;
   fare?: number;
   passenger_name?: string;
+  driver_name?: string;
   [key: string]: any;
 };
 
@@ -63,30 +64,38 @@ export default function RideScreen({
     const socket = getSocket();
 
     const handleUpdate = (payload: any) => {
-      console.log("PASSENGER ride:status:update", payload);
-      if (payload.rideId !== rideId) return;
+    console.log("PASSENGER ride:status:update", payload);
 
-      setRide((prev: any) => ({
-        ...prev,
-        status: payload.status,
-        fare: payload.fare ?? prev?.fare,
-        distance_km: payload.distanceKm ?? prev?.distance_km,
-      }));
+    if (payload.rideId !== rideId) return;
+
+    setRide((prev: any) => ({
+      ...prev,
+      status: payload.status ?? prev?.status,
+      fare: payload.fare ?? prev?.fare,
+      distance_km: payload.distanceKm ?? prev?.distance_km,
+      driver_name: payload.driver_name ?? prev?.driver_name, // keep driver name here
+    }));
+
+    // 👇 Status text should only reflect the ride status
+    if (payload.status) {
       setStatusText(payload.status);
+    }
 
-      if (payload.status === "completed") {
-        Alert.alert(
-          "Ride Completed",
-          `Total Fare: ₱${payload.fare ?? ride?.fare ?? "—"}`
-        );
-        onEndRide();
-      }
+    if (payload.status === "completed") {
+      Alert.alert(
+        "Ride Completed",
+        `Total Fare: ₱${payload.fare ?? ride?.fare ?? "—"}`
+      );
+      onEndRide();
+    }
 
-      if (payload.status === "cancelled") {
-        Alert.alert("Ride Cancelled", "Your ride has been cancelled.");
-        onEndRide();
-      }
-    };
+    if (payload.status === "cancelled") {
+      Alert.alert("Ride Cancelled", "Your ride has been cancelled.");
+      onEndRide();
+    }
+  };
+
+
 
     socket.on("ride:status:update", handleUpdate);
     return () => {
@@ -207,6 +216,19 @@ export default function RideScreen({
 
   const canCancel = statusText === "requested";
 
+  const statusLabels: Record<string, string> = {
+    requested: "Requested",
+    assigned: "Assigned",
+    in_progress: "In progress...",
+    completed: "Completed",
+    cancelled: "Cancelled",
+  };
+
+  function displayStatus() {
+    return statusLabels[statusText] ?? statusText;
+  }
+
+
 
   return (
     <View style={{ flex: 1 }}>
@@ -237,18 +259,50 @@ export default function RideScreen({
 
       {/* Info + actions */}
       <View style={{ padding: 16 }}>
-        <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 4 }}>
-          Ride #{rideId}
-        </Text>
-        <Text>Status: {statusText}</Text>
-        <Text>Estimated distance: {displayDistance()}</Text>
-        <Text>Estimated fare: {displayFare()}</Text>
+      <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 4 }}>
+        Ride #{rideId}
+      </Text>
+
+      {/* NEW: Driver name */}
+      <Text>
+        Driver:{" "}
+        {ride?.driver_name
+          ? ride.driver_name
+          : statusText === "requested"
+          ? "Searching for a driver..."
+          : "Driver assigned"}
+      </Text>
+
+
+      <Text>Status: {displayStatus()}</Text>
+      <Text>Estimated distance: {displayDistance()}</Text>
+      <Text>Estimated fare: {displayFare()}</Text>
 
         {canCancel && (
-          <View style={{ marginTop: 12, marginBottom: 40  }}>
-            <Button title="Cancel Ride" onPress={cancelRide} color="red" />
+          <View style={{ marginTop: 12, marginBottom: 40 }}>
+            <TouchableOpacity
+              onPress={cancelRide}
+              activeOpacity={0.7}
+              style={{
+                paddingVertical: 12,
+                borderRadius: 4,
+                alignItems: "center",
+                backgroundColor: "red", // keep red
+              }}
+            >
+              <Text
+                style={{
+                  color: "white",
+                  fontWeight: "bold",
+                  fontSize: 16,
+                }}
+              >
+                Cancel Ride
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
+
       </View>
     </View>
   );

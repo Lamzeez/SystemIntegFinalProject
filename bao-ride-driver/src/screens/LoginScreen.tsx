@@ -1,6 +1,6 @@
 // src/screens/LoginScreen.tsx (DRIVER)
 import React, { useState } from "react";
-import { View, Text, TextInput, Button } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../AuthContext";
 import { getSocket } from "../socket";
@@ -72,7 +72,27 @@ export default function LoginScreen({
 
       {msg ? <Text style={{ color: "red", marginBottom: 10 }}>{msg}</Text> : null}
 
-      <Button title="Login" onPress={handleLogin} />
+      <TouchableOpacity
+        onPress={handleLogin}
+        activeOpacity={0.7}
+        style={styles.primaryButton}
+      >
+        <Text style={styles.primaryButtonText}>Login</Text>
+      </TouchableOpacity>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  primaryButton: {
+    paddingVertical: 12,
+    borderRadius: 4,
+    alignItems: "center",
+    backgroundColor: "#1976D2",
+  },
+  primaryButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+});

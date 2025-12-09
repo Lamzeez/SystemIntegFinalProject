@@ -149,6 +149,18 @@ export default function HomeScreen({
     ? "Pinned dropoff"
     : "Not set";
 
+
+    const handleLogoutPress = () => {
+      Alert.alert(
+        "Logout",
+        "Are you sure you want to logout?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Logout", style: "destructive", onPress: logout },
+        ]
+      );
+    };
+
   return (
     <View style={{ flex: 1}}>
       <View style={{ padding: 20, marginTop: 20}}>
@@ -211,8 +223,20 @@ export default function HomeScreen({
         </View>
 
         <View style={{ marginTop: 16 }}>
-          <Button title="LOGOUT" onPress={logout} color="red" />
+          <TouchableOpacity
+            onPress={handleLogoutPress}
+            activeOpacity={0.7}
+            style={{
+              paddingVertical: 12,
+              borderRadius: 4,
+              alignItems: "center",
+              backgroundColor: "red",
+            }}
+          >
+            <Text style={styles.requestButtonText}>LOGOUT</Text>
+          </TouchableOpacity>
         </View>
+
       </View>
 
       <MapView

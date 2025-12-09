@@ -1,6 +1,6 @@
 // src/screens/LoginScreen.tsx
 import React, { useState } from "react";
-import { View, Text, TextInput, Button } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../AuthContext";
 import { getSocket } from "../socket";
@@ -65,11 +65,50 @@ export default function LoginScreen({
 
       {msg ? <Text style={{ color: "red", marginBottom: 10 }}>{msg}</Text> : null}
 
-      <Button title="Login" onPress={handleLogin} />
+      <TouchableOpacity
+        onPress={handleLogin}
+        activeOpacity={0.7}
+        style={styles.primaryButton}
+      >
+        <Text style={styles.primaryButtonText}>Login</Text>
+      </TouchableOpacity>
 
       <View style={{ marginTop: 20 }}>
-        <Button title="Register" onPress={onNavigateToRegister} />
+        <TouchableOpacity
+          onPress={onNavigateToRegister}
+          activeOpacity={0.7}
+          style={styles.secondaryButton}
+        >
+          <Text style={styles.secondaryButtonText}>Register</Text>
+        </TouchableOpacity>
       </View>
+
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  primaryButton: {
+    paddingVertical: 12,
+    borderRadius: 4,
+    alignItems: "center",
+    backgroundColor: "#1976D2", // same vibe as app
+  },
+  primaryButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  secondaryButton: {
+    paddingVertical: 12,
+    borderRadius: 4,
+    alignItems: "center",
+    backgroundColor: "#EEEEEE",
+  },
+  secondaryButtonText: {
+    color: "#1976D2",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+});
+
