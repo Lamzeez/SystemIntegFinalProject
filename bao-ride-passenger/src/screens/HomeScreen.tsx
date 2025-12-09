@@ -4,118 +4,169 @@ import { View, Text, TextInput, Button } from "react-native";
 import { useAuth } from "../AuthContext";
 import { api } from "../api";
 import { getSocket } from "../socket";
-import axios from "axios";
-
+import MapView, { Marker, MapPressEvent, Region } from "react-native-maps";
 
 export default function HomeScreen({
   onRideCreated,
   onActiveRideDetected,
 }: {
-  onRideCreated: (id: number) => void;
-  onActiveRideDetected: (id: number) => void;
+  onRideCreated: (ride: any) => void;
+  onActiveRideDetected: (ride: any) => void;
 }) {
   const { user, logout } = useAuth();
+
+  // TEXT INPUTS
   const [pickup, setPickup] = useState("");
   const [destination, setDestination] = useState("");
+
+  // MAP STATE
+  const [pickupCoord, setPickupCoord] = useState<any>(null);
+  const [dropoffCoord, setDropoffCoord] = useState<any>(null);
+  const [selecting, setSelecting] = useState<"pickup" | "dropoff" | null>("pickup");
+
   const [msg, setMsg] = useState("");
 
-  // On mount, see if there's already an active ride
+  // INITIAL MAP LOCATION (Manila)
+  const initialRegion: Region = {
+    latitude: 14.5995,
+    longitude: 120.9842,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
+  };
+
+  // HANDLE MAP TAP
+  const handleMapPress = (e: MapPressEvent) => {
+    const coord = e.nativeEvent.coordinate;
+    if (selecting === "pickup") {
+      setPickupCoord(coord);
+      setMsg("Pickup location set on map.");
+    } else if (selecting === "dropoff") {
+      setDropoffCoord(coord);
+      setMsg("Dropoff location set on map.");
+    }
+  };
+
+  // CHECK IF PASSENGER STILL HAS ACTIVE RIDE
   useEffect(() => {
     const loadCurrentRide = async () => {
       try {
         const res = await api.get("/passenger/rides/current");
         if (res.data.ride?.id) {
-          onActiveRideDetected(res.data.ride.id);
+          onActiveRideDetected(res.data.ride);
         }
       } catch (e) {
         console.log("Failed to check current ride", e);
       }
     };
-
     loadCurrentRide();
   }, [onActiveRideDetected]);
 
-  // Listen for status updates (e.g., driver assigned, in_progress, etc.)
+  // SOCKET: LISTEN FOR STATUS UPDATES
   useEffect(() => {
     const socket = getSocket();
-
     const handleStatusUpdate = (payload: any) => {
-      // Adjust this logic to match your backend payload
       if (payload.passengerId === user?.id && payload.status === "assigned") {
-        // if your backend sends ride info here, you could update UI
         setMsg("Driver has been assigned!");
       }
     };
-
     socket.on("ride:status:update", handleStatusUpdate);
-
     return () => {
       socket.off("ride:status:update", handleStatusUpdate);
     };
   }, [user?.id]);
 
   const requestRide = async () => {
-  if (!pickup || !destination) {
-    setMsg("Please enter pickup and destination.");
-    return;
-  }
-
-  try {
-    const res = await api.post("/rides/request", {
-      pickup_lat: 14.5995,
-      pickup_lng: 120.9842,
-      dropoff_lat: 14.6091,
-      dropoff_lng: 121.0223,
-      pickup_address: pickup,
-      dropoff_address: destination,
-    });
-
-    const ride = res.data.ride;
-    if (ride?.id) {
-      setMsg(
-        `Ride requested! Estimated distance: ${ride.estimated_distance_km?.toFixed(
-          1
-        )} km, fare: ₱${ride.estimated_fare}`
-      );
-      onRideCreated(ride); // pass the whole ride
-    } else {
-      setMsg("Ride requested, but no ride ID returned.");
+    // Require coordinates to be set
+    if (!pickupCoord || !dropoffCoord) {
+      setMsg("Please set pickup and dropoff by tapping the map.");
+      return;
     }
-  } catch (err: any) {
-    // ...
-  }
-};
 
+    // Use manual text inputs OR fallback labels
+    const pickupLabel =
+      pickup.trim() ||
+      `Pickup (${pickupCoord.latitude.toFixed(5)}, ${pickupCoord.longitude.toFixed(5)})`;
 
+    const dropoffLabel =
+      destination.trim() ||
+      `Dropoff (${dropoffCoord.latitude.toFixed(5)}, ${dropoffCoord.longitude.toFixed(5)})`;
 
+    try {
+      const res = await api.post("/rides/request", {
+        pickup_lat: pickupCoord.latitude,
+        pickup_lng: pickupCoord.longitude,
+        dropoff_lat: dropoffCoord.latitude,
+        dropoff_lng: dropoffCoord.longitude,
+        pickup_address: pickupLabel,
+        dropoff_address: dropoffLabel,
+      });
+
+      const ride = res.data.ride;
+      if (ride?.id) {
+        setMsg(
+          `Ride requested! Estimated distance: ${Number(
+            ride.estimated_distance_km
+          ).toFixed(1)} km, fare: ₱${ride.estimated_fare}`
+        );
+        onRideCreated(ride);
+      } else {
+        setMsg("Ride requested, but no ride ID returned.");
+      }
+    } catch (err: any) {
+      console.log("Request ride error", err.response?.data || err);
+      setMsg("Failed to request ride.");
+    }
+  };
 
   return (
-    <View style={{ padding: 20 }}>
-      <Text style={{ fontSize: 22, fontWeight: "bold", marginBottom: 10 }}>
-        Hello, {user?.name}
-      </Text>
+    <View style={{ flex: 1 }}>
+      {/* TEXT INPUT AREA */}
+      <View style={{ padding: 20 }}>
+        <Text style={{ fontSize: 22, fontWeight: "bold", marginBottom: 10 }}>
+          Hello, {user?.name}
+        </Text>
 
-      <Text style={{ marginBottom: 5 }}>Pickup location</Text>
-      <TextInput
-        style={{ borderWidth: 1, padding: 8, marginBottom: 10 }}
-        value={pickup}
-        onChangeText={setPickup}
-      />
+        <Text>Pickup address (optional)</Text>
+        <TextInput
+          style={{ borderWidth: 1, padding: 8, marginBottom: 10 }}
+          value={pickup}
+          onChangeText={setPickup}
+        />
 
-      <Text style={{ marginBottom: 5 }}>Destination</Text>
-      <TextInput
-        style={{ borderWidth: 1, padding: 8, marginBottom: 10 }}
-        value={destination}
-        onChangeText={setDestination}
-      />
+        <Text>Destination (optional)</Text>
+        <TextInput
+          style={{ borderWidth: 1, padding: 8, marginBottom: 10 }}
+          value={destination}
+          onChangeText={setDestination}
+        />
 
-      {msg ? <Text style={{ marginVertical: 10 }}>{msg}</Text> : null}
+        <View style={{ flexDirection: "row", marginBottom: 10 }}>
+          <Button title="Set Pickup on Map" onPress={() => setSelecting("pickup")} />
+          <View style={{ width: 10 }} />
+          <Button
+            title="Set Dropoff on Map"
+            onPress={() => setSelecting("dropoff")}
+          />
+        </View>
 
-      <Button title="Request Ride" onPress={requestRide} />
+        <Button title="Request Ride" onPress={requestRide} />
 
-      <View style={{ marginTop: 40 }}>
-        <Button title="Logout" onPress={logout} color="red" />
+        {msg ? <Text style={{ marginTop: 10 }}>{msg}</Text> : null}
+
+        <View style={{ marginTop: 30 }}>
+          <Button title="Logout" onPress={logout} color="red" />
+        </View>
       </View>
+
+      {/* MAP AREA */}
+      <MapView style={{ flex: 1 }} initialRegion={initialRegion} onPress={handleMapPress}>
+        {pickupCoord && (
+          <Marker coordinate={pickupCoord} title="Pickup" pinColor="green" />
+        )}
+        {dropoffCoord && (
+          <Marker coordinate={dropoffCoord} title="Dropoff" pinColor="red" />
+        )}
+      </MapView>
     </View>
   );
 }

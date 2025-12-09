@@ -42,3 +42,6 @@ set location permission in app.json:
 
 IO Socket:
 npm install socket.io-client
+
+ReactNative Maps:
+npx expo install react-native-maps
