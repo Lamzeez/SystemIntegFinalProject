@@ -7,8 +7,10 @@ import { getSocket } from "../socket";
 
 export default function LoginScreen({
   onLoginRideCheck,
+  onNavigateToRegister,
 }: {
   onLoginRideCheck: (rideId: number | null) => void;
+  onNavigateToRegister: () => void;
 }) {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
@@ -27,10 +29,8 @@ export default function LoginScreen({
       await login(res.data.token, res.data.user);
 
       const socket = getSocket();
-      // Adjust event name if your backend uses a different one
       socket.emit("auth:passenger", { token: res.data.token });
 
-      // Check if this passenger already has an active ride
       const check = await api.get("/passenger/rides/current");
       onLoginRideCheck(check.data.ride?.id || null);
 
@@ -63,9 +63,13 @@ export default function LoginScreen({
         onChangeText={setPassword}
       />
 
-      {msg ? <Text style={{ color: "red" }}>{msg}</Text> : null}
+      {msg ? <Text style={{ color: "red", marginBottom: 10 }}>{msg}</Text> : null}
 
       <Button title="Login" onPress={handleLogin} />
+
+      <View style={{ marginTop: 20 }}>
+        <Button title="Register" onPress={onNavigateToRegister} />
+      </View>
     </View>
   );
 }

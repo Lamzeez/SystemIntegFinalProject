@@ -205,8 +205,8 @@ export default function RideScreen({
     longitudeDelta: 0.05,
   };
 
-  const canCancel =
-    statusText === "requested" || statusText === "assigned";
+  const canCancel = statusText === "requested";
+
 
   return (
     <View style={{ flex: 1 }}>

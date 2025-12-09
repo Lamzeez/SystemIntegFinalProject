@@ -434,32 +434,39 @@ app.post(
       const userId = req.user.id;
       const driver = await getDriverForUser(userId);
 
+      // Attempt an atomic update:
+      // Only succeed if ride is still REQUESTED and unassigned.
       const [result] = await pool.query(
         `UPDATE rides
          SET status = 'assigned', driver_id = ?
          WHERE id = ?
-           AND status IN ('requested', 'assigned')
-           AND (driver_id IS NULL OR driver_id = ?)`,
-        [driver.id, rideId, driver.id]
+           AND status = 'requested'
+           AND driver_id IS NULL`,
+        [driver.id, rideId]
       );
 
+      // If no rows updated → another driver took it already
       if (result.affectedRows === 0) {
-        return res.status(400).json({ error: 'Ride cannot be accepted' });
+        return res.status(409).json({
+          error: 'Ride already assigned to another driver',
+        });
       }
 
+      // Emit status update ONLY AFTER a successful assignment
       io.emit('ride:status:update', {
         rideId: Number(rideId),
         status: 'assigned',
         driverId: driver.id,
       });
 
-      res.json({ message: 'Ride accepted' });
+      return res.json({ message: 'Ride accepted' });
     } catch (err) {
       console.error('Error accepting ride', err);
-      res.status(500).json({ error: 'Failed to accept ride' });
+      return res.status(500).json({ error: 'Failed to accept ride' });
     }
   }
 );
+
 
 // Driver starts the ride (picked up passenger)
 app.post(
