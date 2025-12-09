@@ -14,8 +14,10 @@ type Ride = {
   dropoff_lng?: number | string;
   estimated_distance_km?: number | string;
   distance_km?: number | string;
+  final_distance_km?: number | string;
   estimated_fare?: number;
   fare?: number;
+  final_fare?: number;
   passenger_name?: string;
   pickup_address?: string;
   dropoff_address?: string;
@@ -28,10 +30,12 @@ export default function RideScreen({
   rideId,
   initialRide,
   onEndRide,
+  onBack,
 }: {
   rideId: number;
   initialRide?: Ride | null;
   onEndRide: () => void;
+  onBack: () => void;
 }) {
   const [ride, setRide] = useState<Ride | null>(initialRide ?? null);
   const [statusText, setStatusText] = useState<string>(
@@ -67,19 +71,50 @@ export default function RideScreen({
     const handleUpdate = (payload: any) => {
       if (payload.rideId !== rideId) return;
 
-      setRide((prev: any) => ({
-        ...prev,
-        status: payload.status,
-        fare: payload.fare ?? prev?.fare,
-        distance_km: payload.distanceKm ?? prev?.distance_km,
-      }));
+      setRide((prev) => {
+        const existing = prev || ({} as Ride);
+
+        const updated: Ride = {
+          ...existing,
+          status: payload.status ?? existing.status,
+          // prefer final_fare, then fare, then keep previous
+          fare:
+            payload.fare ??
+            payload.final_fare ??
+            existing.fare ??
+            existing.final_fare,
+          final_fare:
+            payload.final_fare ??
+            payload.fare ??
+            existing.final_fare ??
+            existing.fare,
+          distance_km:
+            payload.distanceKm ??
+            payload.final_distance_km ??
+            existing.distance_km ??
+            existing.final_distance_km,
+          final_distance_km:
+            payload.final_distance_km ??
+            payload.distanceKm ??
+            existing.final_distance_km ??
+            existing.distance_km,
+        };
+
+        return updated;
+      });
+
       setStatusText(payload.status);
 
       if (payload.status === "completed") {
-        Alert.alert(
-          "Ride completed",
-          `Fare: ₱${payload.fare ?? ride?.fare ?? "—"}`
-        );
+        const finalFare =
+          payload.final_fare ??
+          payload.fare ??
+          ride?.final_fare ??
+          ride?.fare ??
+          ride?.estimated_fare ??
+          "—";
+
+        Alert.alert("Ride completed", `Fare: ₱${finalFare}`);
         onEndRide();
       }
 
@@ -93,7 +128,7 @@ export default function RideScreen({
     return () => {
       socket.off("ride:status:update", handleUpdate);
     };
-  }, [rideId, onEndRide, ride?.fare]);
+  }, [rideId, onEndRide, ride?.fare, ride?.final_fare, ride?.estimated_fare]);
 
   // Load OSRM route polyline when we have pickup/dropoff coordinates
   useEffect(() => {
@@ -157,20 +192,21 @@ export default function RideScreen({
   const acceptRide = async () => {
     try {
       await api.post(`/driver/rides/${rideId}/accept`);
-      setRide((prev: any) =>
-        prev ? { ...prev, status: "assigned" } : prev
-      );
+      setRide((prev) => (prev ? { ...prev, status: "assigned" } : prev));
       setStatusText("assigned");
     } catch (e: any) {
       console.log("Accept failed", e.response?.data || e);
-      Alert.alert("Error", "Failed to accept ride.");
+      Alert.alert(
+        "Error",
+        e.response?.data?.error || "Failed to accept ride."
+      );
     }
   };
 
   const startRide = async () => {
     try {
       await api.post(`/driver/rides/${rideId}/start`);
-      setRide((prev: any) =>
+      setRide((prev) =>
         prev ? { ...prev, status: "in_progress" } : prev
       );
       setStatusText("in_progress");
@@ -183,8 +219,21 @@ export default function RideScreen({
   const completeRide = async () => {
     try {
       const res = await api.post(`/driver/rides/${rideId}/complete`);
-      const fare = res.data?.fare;
-      Alert.alert("Ride completed", `Fare: ₱${fare ?? "—"}`);
+      const finalFare =
+        res.data?.final_fare ?? res.data?.fare ?? ride?.final_fare ?? ride?.fare;
+
+      setRide((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "completed",
+              final_fare: finalFare ?? prev.final_fare,
+              fare: finalFare ?? prev.fare,
+            }
+          : prev
+      );
+
+      Alert.alert("Ride completed", `Fare: ₱${finalFare ?? "—"}`);
       onEndRide();
     } catch (e: any) {
       console.log("Complete failed", e.response?.data || e);
@@ -196,26 +245,26 @@ export default function RideScreen({
     return <Text style={{ padding: 20 }}>Loading ride...</Text>;
   }
 
-  // distance & fare display
+  // distance display: prefer final_distance, then distance, then estimated
   const displayDistance = () => {
-    if (ride.estimated_distance_km != null) {
-      return `${Number(ride.estimated_distance_km).toFixed(1)} km`;
+    if (ride.final_distance_km != null) {
+      return `${Number(ride.final_distance_km).toFixed(1)} km`;
     }
     if (ride.distance_km != null) {
       return `${Number(ride.distance_km).toFixed(1)} km`;
     }
+    if (ride.estimated_distance_km != null) {
+      return `${Number(ride.estimated_distance_km).toFixed(1)} km`;
+    }
     return "—";
   };
 
-  const displayFare = () => {
-    if (ride.estimated_fare != null) {
-      return `₱${ride.estimated_fare}`;
-    }
-    if (ride.fare != null) {
-      return `₱${ride.fare}`;
-    }
-    return "—";
-  };
+  // total fare: prefer final_fare, then fare, then estimated_fare
+  const totalFare =
+    ride.final_fare ??
+    ride.fare ??
+    ride.estimated_fare ??
+    null;
 
   const pickupLat = Number(ride.pickup_lat);
   const pickupLng = Number(ride.pickup_lng);
@@ -268,12 +317,14 @@ export default function RideScreen({
         <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 4 }}>
           Ride #{rideId}
         </Text>
-        <Text>Passenger: {ride.passenger_name || ride.passenger_id}</Text>
+        <Text>Passenger: {ride.passenger_name ?? "Unknown passenger"}</Text>
         <Text>Pickup: {ride.pickup_address}</Text>
         <Text>Dropoff: {ride.dropoff_address}</Text>
         <Text>Status: {statusText}</Text>
-        <Text>Estimated distance: {displayDistance()}</Text>
-        <Text>Estimated fare: {displayFare()}</Text>
+        <Text>Distance: {displayDistance()}</Text>
+        <Text>
+          Total fare: {totalFare != null ? `₱${totalFare}` : "₱--"}
+        </Text>
 
         <View style={{ marginTop: 12 }}>
           {statusText === "requested" && (
@@ -285,6 +336,9 @@ export default function RideScreen({
           {statusText === "in_progress" && (
             <Button title="COMPLETE RIDE" onPress={completeRide} />
           )}
+        </View>
+        <View style={{ marginTop: 12, marginBottom: 40}}>
+          <Button title="Back to Home" onPress={onBack} />
         </View>
       </View>
     </View>

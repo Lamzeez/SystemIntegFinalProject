@@ -1,15 +1,21 @@
-// src/screens/HomeScreen.tsx
 import React, { useEffect, useState } from "react";
-import { View, Text, Button } from "react-native";
-import { useAuth } from "../AuthContext";
-import { api } from "../api";
-import { getSocket } from "../socket";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  Button,
+} from "react-native";
 import MapView, {
   Marker,
   MapPressEvent,
-  Region,
   PoiClickEvent,
+  Region,
 } from "react-native-maps";
+import { useAuth } from "../AuthContext";
+import { api } from "../api";
+import { getSocket } from "../socket";
 
 type LatLng = { latitude: number; longitude: number };
 
@@ -22,20 +28,12 @@ export default function HomeScreen({
 }) {
   const { user, logout } = useAuth();
 
-  // map coords
+  const [selection, setSelection] = useState<"pickup" | "dropoff">("pickup");
   const [pickupCoord, setPickupCoord] = useState<LatLng | null>(null);
   const [dropoffCoord, setDropoffCoord] = useState<LatLng | null>(null);
-
-  // labels shown and sent to backend
   const [pickupLabel, setPickupLabel] = useState<string | null>(null);
   const [dropoffLabel, setDropoffLabel] = useState<string | null>(null);
 
-  // are we choosing pickup or dropoff right now
-  const [selection, setSelection] = useState<"pickup" | "dropoff">("pickup");
-
-  const [msg, setMsg] = useState("");
-
-  // default map region: Mati City, Davao Oriental
   const MATI_DEFAULT_REGION: Region = {
     latitude: 6.95,
     longitude: 126.2333,
@@ -43,38 +41,7 @@ export default function HomeScreen({
     longitudeDelta: 0.05,
   };
 
-  // tap anywhere on map (not POI)
-  const handleMapPress = (e: MapPressEvent) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-
-    if (selection === "pickup") {
-      setPickupCoord({ latitude, longitude });
-      if (!pickupLabel) setPickupLabel("Pinned pickup");
-      setMsg("Pickup location set on map.");
-    } else {
-      setDropoffCoord({ latitude, longitude });
-      if (!dropoffLabel) setDropoffLabel("Pinned dropoff");
-      setMsg("Dropoff location set on map.");
-    }
-  };
-
-  // tap on POI (store, school, company icons)
-  const handlePoiClick = (e: PoiClickEvent) => {
-    const { coordinate, name } = e.nativeEvent;
-    const { latitude, longitude } = coordinate;
-
-    if (selection === "pickup") {
-      setPickupCoord({ latitude, longitude });
-      setPickupLabel(name || "Pinned pickup");
-      setMsg(`Pickup set: ${name || "Pinned pickup"}`);
-    } else {
-      setDropoffCoord({ latitude, longitude });
-      setDropoffLabel(name || "Pinned dropoff");
-      setMsg(`Dropoff set: ${name || "Pinned dropoff"}`);
-    }
-  };
-
-  // on mount: check if passenger already has active ride
+  // Check if passenger already has an active ride
   useEffect(() => {
     const loadCurrentRide = async () => {
       try {
@@ -89,23 +56,59 @@ export default function HomeScreen({
     loadCurrentRide();
   }, [onActiveRideDetected]);
 
-  // listen for driver assignment updates
+  // Optional: listen for status updates
   useEffect(() => {
     const socket = getSocket();
+
     const handleStatusUpdate = (payload: any) => {
-      if (payload.passengerId === user?.id && payload.status === "assigned") {
-        setMsg("Driver has been assigned!");
+      if (payload.passengerId === user?.id) {
+        console.log("ride:status:update (passenger)", payload);
       }
     };
+
     socket.on("ride:status:update", handleStatusUpdate);
+
     return () => {
       socket.off("ride:status:update", handleStatusUpdate);
     };
   }, [user?.id]);
 
-  const requestRide = async () => {
+  const handleMapPress = (e: MapPressEvent) => {
+    const { latitude, longitude } = e.nativeEvent.coordinate;
+
+    if (selection === "pickup") {
+      setPickupCoord({ latitude, longitude });
+      // Clear any previous POI name so the label becomes "Pinned pickup"
+      setPickupLabel(null);
+    } else {
+      setDropoffCoord({ latitude, longitude });
+      // Clear any previous POI name so the label becomes "Pinned dropoff"
+      setDropoffLabel(null);
+    }
+  };
+
+  const handlePoiClick = (e: PoiClickEvent) => {
+    const { coordinate, name } = e.nativeEvent;
+    const { latitude, longitude } = coordinate;
+
+    if (selection === "pickup") {
+      setPickupCoord({ latitude, longitude });
+      setPickupLabel(name || "Pinned pickup");
+    } else {
+      setDropoffCoord({ latitude, longitude });
+      setDropoffLabel(name || "Pinned dropoff");
+    }
+  };
+
+
+  const canRequest = !!(pickupCoord && dropoffCoord);
+
+  const handleRequestRidePress = async () => {
     if (!pickupCoord || !dropoffCoord) {
-      setMsg("Please choose pickup and dropoff on the map.");
+      Alert.alert(
+        "Incomplete locations",
+        "Please set pickup and dropoff locations first."
+      );
       return;
     }
 
@@ -124,90 +127,94 @@ export default function HomeScreen({
 
       const ride = res.data.ride;
       if (ride?.id) {
-        const dist = ride.estimated_distance_km
-          ? Number(ride.estimated_distance_km).toFixed(1)
-          : null;
-        const fare = ride.estimated_fare;
-
-        setMsg(
-          dist && fare != null
-            ? `Ride requested! Estimated distance: ${dist} km, fare: ₱${fare}`
-            : "Ride requested!"
-        );
         onRideCreated(ride);
       } else {
-        setMsg("Ride requested, but no ride ID returned.");
+        Alert.alert("Error", "Ride requested, but no ride ID returned.");
       }
     } catch (err: any) {
-      console.log("Request ride error", err.response?.data || err);
-      setMsg("Failed to request ride.");
+      console.log("Request ride error", err?.response?.data || err);
+      Alert.alert("Error", "Failed to request ride.");
     }
   };
 
-  return (
-    <View style={{ flex: 1 }}>
-      {/* top controls */}
-      <View style={{ padding: 20 }}>
-        <Text style={{ fontSize: 22, fontWeight: "bold", marginBottom: 10 }}>
-          Hello, {user?.name}
-        </Text>
+  const pickupText = pickupLabel
+    ? pickupLabel
+    : pickupCoord
+    ? "Pinned pickup"
+    : "Not set";
 
-        <Text style={{ marginBottom: 6 }}>
+  const dropoffText = dropoffLabel
+    ? dropoffLabel
+    : dropoffCoord
+    ? "Pinned dropoff"
+    : "Not set";
+
+  return (
+    <View style={{ flex: 1}}>
+      <View style={{ padding: 20, marginTop: 20}}>
+        <Text style={styles.helloText}>Hello, {user?.name}</Text>
+
+        <Text style={{ marginTop: 8, marginBottom: 8 }}>
           Select which location to set on the map:
         </Text>
 
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            marginBottom: 10,
-          }}
-        >
-          <Button
-            title={
-              selection === "pickup"
-                ? "Choosing PICKUP (tap map / POI)"
-                : "Set pickup"
-            }
+        <View style={styles.toggleRow}>
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              selection === "pickup" && styles.toggleButtonActive,
+            ]}
             onPress={() => setSelection("pickup")}
-          />
-          <Button
-            title={
-              selection === "dropoff"
-                ? "Choosing DROPOFF (tap map / POI)"
-                : "Set dropoff"
-            }
+          >
+            <Text
+              style={[
+                styles.toggleText,
+                selection === "pickup" && styles.toggleTextActive,
+              ]}
+            >
+              SET PICKUP
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              selection === "dropoff" && styles.toggleButtonActive,
+            ]}
             onPress={() => setSelection("dropoff")}
-          />
+          >
+            <Text
+              style={[
+                styles.toggleText,
+                selection === "dropoff" && styles.toggleTextActive,
+              ]}
+            >
+              SET DROPOFF
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <Text>
-          Pickup:{" "}
-          {pickupLabel
-            ? pickupLabel
-            : pickupCoord
-            ? "Pinned location"
-            : "Not set"}
-        </Text>
-        <Text style={{ marginBottom: 8 }}>
-          Dropoff:{" "}
-          {dropoffLabel
-            ? dropoffLabel
-            : dropoffCoord
-            ? "Pinned location"
-            : "Not set"}
-        </Text>
+        <Text style={{ marginTop: 10 }}>Pickup: {pickupText}</Text>
+        <Text>Dropoff: {dropoffText}</Text>
 
-        <Button title="REQUEST RIDE" onPress={requestRide} />
+        <View style={{ marginTop: 16 }}>
+          <TouchableOpacity
+            onPress={handleRequestRidePress}
+            disabled={!canRequest}
+            style={[
+              styles.requestButton,
+              { backgroundColor: canRequest ? "#2E7D32" : "#BDBDBD" },
+            ]}
+          >
+            <Text style={styles.requestButtonText}>REQUEST RIDE</Text>
+          </TouchableOpacity>
+        </View>
 
-        {msg ? <Text style={{ marginTop: 10 }}>{msg}</Text> : null}
-
-        <View style={{ marginTop: 20 }}>
-          <Button title="Logout" onPress={logout} color="red" />
+        <View style={{ marginTop: 16 }}>
+          <Button title="LOGOUT" onPress={logout} color="red" />
         </View>
       </View>
 
-      {/* map area */}
       <MapView
         style={{ flex: 1 }}
         initialRegion={MATI_DEFAULT_REGION}
@@ -232,3 +239,45 @@ export default function HomeScreen({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  helloText: {
+    fontSize: 24,
+    fontWeight: "bold",
+  },
+  toggleRow: {
+    flexDirection: "row",
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#1976D2",
+    backgroundColor: "white",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  toggleButtonActive: {
+    backgroundColor: "#1976D2",
+  },
+  toggleText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1976D2",
+  },
+  toggleTextActive: {
+    color: "white",
+  },
+  requestButton: {
+    paddingVertical: 12,
+    borderRadius: 4,
+    alignItems: "center",
+  },
+  requestButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+});

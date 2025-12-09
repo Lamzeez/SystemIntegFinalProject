@@ -40,7 +40,7 @@ export default function RegisterScreen({ onSwitchToLogin }: RegisterScreenProps)
   };
 
   return (
-    <View style={{ padding: 20 }}>
+    <View style={{ padding: 20, marginTop: 20 }}>
       <Text style={{ fontSize: 28, fontWeight: "bold", marginBottom: 20 }}>
         Passenger Register
       </Text>

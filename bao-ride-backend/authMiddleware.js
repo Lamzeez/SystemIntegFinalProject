@@ -28,6 +28,16 @@ function requireDriver(req, res, next) {
   next();
 }
 
-module.exports = { authenticateToken, requireAdmin, requireDriver };
+function requirePassenger(req, res, next) {
+  if (!req.user || req.user.role !== 'passenger') {
+    return res
+      .status(403)
+      .json({ error: 'Only passengers can perform this action' });
+  }
+  next();
+}
+
+
+module.exports = { authenticateToken, requireAdmin, requireDriver, requirePassenger, };
 
 

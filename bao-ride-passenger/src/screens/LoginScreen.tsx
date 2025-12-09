@@ -42,7 +42,7 @@ export default function LoginScreen({
   };
 
   return (
-    <View style={{ padding: 20 }}>
+    <View style={{ padding: 20, marginTop: 20 }}>
       <Text style={{ fontSize: 28, fontWeight: "bold", marginBottom: 20 }}>
         Passenger Login
       </Text>
@@ -57,7 +57,7 @@ export default function LoginScreen({
 
       <Text>Password</Text>
       <TextInput
-        style={{ borderWidth: 1, padding: 8, marginBottom: 10 }}
+        style={{ borderWidth: 1, padding: 8, marginBottom: 20 }}
         value={password}
         secureTextEntry
         onChangeText={setPassword}

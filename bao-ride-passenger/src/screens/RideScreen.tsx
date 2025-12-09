@@ -245,7 +245,7 @@ export default function RideScreen({
         <Text>Estimated fare: {displayFare()}</Text>
 
         {canCancel && (
-          <View style={{ marginTop: 12 }}>
+          <View style={{ marginTop: 12, marginBottom: 40  }}>
             <Button title="Cancel Ride" onPress={cancelRide} color="red" />
           </View>
         )}

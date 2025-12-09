@@ -31,15 +31,21 @@ export default function AppNavigator() {
           setActiveRideId(null);
           setActiveRide(null);
         }}
+        onBack={() => {
+          // Just go back to HomeScreen; keep other rides:
+          setActiveRideId(null);
+          setActiveRide(null);
+        }}
       />
     );
   }
 
+
   return (
     <HomeScreen
-      onRideAssigned={(ride) => {
+      onOpenRide={(ride) => {
         setActiveRideId(ride.id);
-        setActiveRide(ride); // use the socket payload directly
+        setActiveRide(ride); // if you keep initialRide in RideScreen
       }}
     />
   );
