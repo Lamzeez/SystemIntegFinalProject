@@ -11,6 +11,38 @@ const { authenticateToken, requireAdmin, requireDriver } = require('./authMiddle
 const app = express();
 const server = http.createServer(app);
 
+const axios = require("axios");
+
+// Directions API requires billing but Google Cloud won't let us add our billing info, lol
+// const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+
+// Get road distance from OSRM (no API key required)
+async function getRouteDistanceKm(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng) {
+  try {
+    // OSRM expects coordinates in the format: lon,lat
+    const url = `http://router.project-osrm.org/route/v1/driving/${pickup_lng},${pickup_lat};${dropoff_lng},${dropoff_lat}?overview=false`;
+
+    const res = await axios.get(url);
+    const data = res.data;
+
+    if (data.code !== "Ok" || !data.routes || !data.routes.length) {
+      console.error("OSRM error:", data);
+      return null;
+    }
+
+    const route = data.routes[0];
+    const distanceMeters = route.distance; // distance in meters
+    const distanceKm = distanceMeters / 1000;
+
+    return distanceKm;
+  } catch (err) {
+    console.error("Error calling OSRM", err.message || err);
+    return null;
+  }
+}
+
+
+
 app.use(cors());
 app.use(express.json());
 
@@ -699,58 +731,123 @@ app.post('/auth/register/passenger', async (req, res) => {
 // ---------- PASSENGER API ----------
 
 // Request a new ride
-app.post('/rides/request', authenticateToken, async (req, res) => {
-  const { pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address } = req.body;
+app.post("/rides/request", authenticateToken, async (req, res) => {
+  const {
+    pickup_lat,
+    pickup_lng,
+    dropoff_lat,
+    dropoff_lng,
+    pickup_address,
+    dropoff_address,
+  } = req.body;
 
-  if (!pickup_lat || !pickup_lng || !dropoff_lat || !dropoff_lng || !pickup_address || !dropoff_address) {
-    return res.status(400).json({ error: 'Pickup and dropoff coordinates and addresses are required' });
+  if (
+    !pickup_lat ||
+    !pickup_lng ||
+    !dropoff_lat ||
+    !dropoff_lng ||
+    !pickup_address ||
+    !dropoff_address
+  ) {
+    return res.status(400).json({
+      error: "Pickup and dropoff coordinates and addresses are required",
+    });
   }
 
   try {
     const passengerId = req.user.id;
+
     // Ensure the authenticated user is a passenger
-    if (req.user.role !== 'passenger') {
-      return res.status(403).json({ error: 'Only passengers can request rides' });
+    if (req.user.role !== "passenger") {
+      return res
+        .status(403)
+        .json({ error: "Only passengers can request rides" });
     }
 
-    // Calculate estimated distance and fare (optional, but good for UX)
-    const estimatedDistanceKm = calculateDistanceKm(
+    // 1) Try to get real road distance using OSRM helper
+    let estimatedDistanceKm = await getRouteDistanceKm(
       Number(pickup_lat),
       Number(pickup_lng),
       Number(dropoff_lat),
       Number(dropoff_lng)
     );
+
+    // 2) If OSRM fails, fallback to straight line distance
+    if (estimatedDistanceKm == null) {
+      estimatedDistanceKm = calculateDistanceKm(
+        Number(pickup_lat),
+        Number(pickup_lng),
+        Number(dropoff_lat),
+        Number(dropoff_lng)
+      );
+    }
+
+    // 3) Compute fare from distance
     const estimatedFare = calculateFareFromDistance(estimatedDistanceKm);
 
+    // 4) Insert ride into database
     const [result] = await pool.query(
-      `INSERT INTO rides (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address, status, estimated_fare, estimated_distance_km)
+      `INSERT INTO rides (
+         passenger_id,
+         pickup_lat,
+         pickup_lng,
+         dropoff_lat,
+         dropoff_lng,
+         pickup_address,
+         dropoff_address,
+         status,
+         estimated_fare,
+         estimated_distance_km
+       )
        VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?)`,
-      [passengerId, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, pickup_address, dropoff_address, estimatedFare, estimatedDistanceKm]
+      [
+        passengerId,
+        pickup_lat,
+        pickup_lng,
+        dropoff_lat,
+        dropoff_lng,
+        pickup_address,
+        dropoff_address,
+        estimatedFare,
+        estimatedDistanceKm,
+      ]
     );
 
     const rideId = result.insertId;
 
-    // Fetch the newly created ride
-    const [rows] = await pool.query('SELECT * FROM rides WHERE id = ?', [rideId]);
+    // 5) Fetch the newly created ride
+    const [rows] = await pool.query("SELECT * FROM rides WHERE id = ?", [
+      rideId,
+    ]);
     const newRide = rows[0];
+
+    // 6) Notify drivers about new ride
     await findAndNotifyDrivers(newRide);
 
-    // TODO: Emit a socket event to notify available drivers about the new ride request
-    // This will be part of the next steps: "Notify Drivers of New Rides"
+    // 7) Notify admin / other clients so Rides page auto-updates
+    io.emit("ride:status:update", {
+      rideId,
+      status: "requested",
+      passengerId,
+      estimatedDistanceKm,
+      estimatedFare,
+    });
 
-    res.status(201).json({
-    message: 'Ride requested successfully',
-    ride: {
-      ...newRide,
-      estimated_fare: estimatedFare,
-      estimated_distance_km: estimatedDistanceKm,
-    },
-  });
+    // 8) Respond to passenger app
+    return res.status(201).json({
+      message: "Ride requested successfully",
+      ride: {
+        ...newRide,
+        estimated_fare: estimatedFare,
+        estimated_distance_km: estimatedDistanceKm,
+      },
+    });
   } catch (err) {
-    console.error('Error requesting ride', err);
-    res.status(500).json({ error: 'Failed to request ride' });
+    console.error("Error requesting ride", err);
+    return res.status(500).json({ error: "Failed to request ride" });
   }
 });
+
 
 
 // Passenger cancels a ride

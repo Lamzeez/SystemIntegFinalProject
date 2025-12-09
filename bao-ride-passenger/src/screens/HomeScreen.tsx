@@ -1,10 +1,17 @@
 // src/screens/HomeScreen.tsx
 import React, { useEffect, useState } from "react";
-import { View, Text, TextInput, Button } from "react-native";
+import { View, Text, Button } from "react-native";
 import { useAuth } from "../AuthContext";
 import { api } from "../api";
 import { getSocket } from "../socket";
-import MapView, { Marker, MapPressEvent, Region } from "react-native-maps";
+import MapView, {
+  Marker,
+  MapPressEvent,
+  Region,
+  PoiClickEvent,
+} from "react-native-maps";
+
+type LatLng = { latitude: number; longitude: number };
 
 export default function HomeScreen({
   onRideCreated,
@@ -15,38 +22,59 @@ export default function HomeScreen({
 }) {
   const { user, logout } = useAuth();
 
-  // TEXT INPUTS
-  const [pickup, setPickup] = useState("");
-  const [destination, setDestination] = useState("");
+  // map coords
+  const [pickupCoord, setPickupCoord] = useState<LatLng | null>(null);
+  const [dropoffCoord, setDropoffCoord] = useState<LatLng | null>(null);
 
-  // MAP STATE
-  const [pickupCoord, setPickupCoord] = useState<any>(null);
-  const [dropoffCoord, setDropoffCoord] = useState<any>(null);
-  const [selecting, setSelecting] = useState<"pickup" | "dropoff" | null>("pickup");
+  // labels shown and sent to backend
+  const [pickupLabel, setPickupLabel] = useState<string | null>(null);
+  const [dropoffLabel, setDropoffLabel] = useState<string | null>(null);
+
+  // are we choosing pickup or dropoff right now
+  const [selection, setSelection] = useState<"pickup" | "dropoff">("pickup");
 
   const [msg, setMsg] = useState("");
 
-  // INITIAL MAP LOCATION (Manila)
-  const initialRegion: Region = {
-    latitude: 14.5995,
-    longitude: 120.9842,
+  // default map region: Mati City, Davao Oriental
+  const MATI_DEFAULT_REGION: Region = {
+    latitude: 6.95,
+    longitude: 126.2333,
     latitudeDelta: 0.05,
     longitudeDelta: 0.05,
   };
 
-  // HANDLE MAP TAP
+  // tap anywhere on map (not POI)
   const handleMapPress = (e: MapPressEvent) => {
-    const coord = e.nativeEvent.coordinate;
-    if (selecting === "pickup") {
-      setPickupCoord(coord);
+    const { latitude, longitude } = e.nativeEvent.coordinate;
+
+    if (selection === "pickup") {
+      setPickupCoord({ latitude, longitude });
+      if (!pickupLabel) setPickupLabel("Pinned pickup");
       setMsg("Pickup location set on map.");
-    } else if (selecting === "dropoff") {
-      setDropoffCoord(coord);
+    } else {
+      setDropoffCoord({ latitude, longitude });
+      if (!dropoffLabel) setDropoffLabel("Pinned dropoff");
       setMsg("Dropoff location set on map.");
     }
   };
 
-  // CHECK IF PASSENGER STILL HAS ACTIVE RIDE
+  // tap on POI (store, school, company icons)
+  const handlePoiClick = (e: PoiClickEvent) => {
+    const { coordinate, name } = e.nativeEvent;
+    const { latitude, longitude } = coordinate;
+
+    if (selection === "pickup") {
+      setPickupCoord({ latitude, longitude });
+      setPickupLabel(name || "Pinned pickup");
+      setMsg(`Pickup set: ${name || "Pinned pickup"}`);
+    } else {
+      setDropoffCoord({ latitude, longitude });
+      setDropoffLabel(name || "Pinned dropoff");
+      setMsg(`Dropoff set: ${name || "Pinned dropoff"}`);
+    }
+  };
+
+  // on mount: check if passenger already has active ride
   useEffect(() => {
     const loadCurrentRide = async () => {
       try {
@@ -61,7 +89,7 @@ export default function HomeScreen({
     loadCurrentRide();
   }, [onActiveRideDetected]);
 
-  // SOCKET: LISTEN FOR STATUS UPDATES
+  // listen for driver assignment updates
   useEffect(() => {
     const socket = getSocket();
     const handleStatusUpdate = (payload: any) => {
@@ -76,20 +104,13 @@ export default function HomeScreen({
   }, [user?.id]);
 
   const requestRide = async () => {
-    // Require coordinates to be set
     if (!pickupCoord || !dropoffCoord) {
-      setMsg("Please set pickup and dropoff by tapping the map.");
+      setMsg("Please choose pickup and dropoff on the map.");
       return;
     }
 
-    // Use manual text inputs OR fallback labels
-    const pickupLabel =
-      pickup.trim() ||
-      `Pickup (${pickupCoord.latitude.toFixed(5)}, ${pickupCoord.longitude.toFixed(5)})`;
-
-    const dropoffLabel =
-      destination.trim() ||
-      `Dropoff (${dropoffCoord.latitude.toFixed(5)}, ${dropoffCoord.longitude.toFixed(5)})`;
+    const pickupAddress = pickupLabel || "Pinned pickup";
+    const dropoffAddress = dropoffLabel || "Pinned dropoff";
 
     try {
       const res = await api.post("/rides/request", {
@@ -97,16 +118,21 @@ export default function HomeScreen({
         pickup_lng: pickupCoord.longitude,
         dropoff_lat: dropoffCoord.latitude,
         dropoff_lng: dropoffCoord.longitude,
-        pickup_address: pickupLabel,
-        dropoff_address: dropoffLabel,
+        pickup_address: pickupAddress,
+        dropoff_address: dropoffAddress,
       });
 
       const ride = res.data.ride;
       if (ride?.id) {
+        const dist = ride.estimated_distance_km
+          ? Number(ride.estimated_distance_km).toFixed(1)
+          : null;
+        const fare = ride.estimated_fare;
+
         setMsg(
-          `Ride requested! Estimated distance: ${Number(
-            ride.estimated_distance_km
-          ).toFixed(1)} km, fare: ₱${ride.estimated_fare}`
+          dist && fare != null
+            ? `Ride requested! Estimated distance: ${dist} km, fare: ₱${fare}`
+            : "Ride requested!"
         );
         onRideCreated(ride);
       } else {
@@ -120,51 +146,87 @@ export default function HomeScreen({
 
   return (
     <View style={{ flex: 1 }}>
-      {/* TEXT INPUT AREA */}
+      {/* top controls */}
       <View style={{ padding: 20 }}>
         <Text style={{ fontSize: 22, fontWeight: "bold", marginBottom: 10 }}>
           Hello, {user?.name}
         </Text>
 
-        <Text>Pickup address (optional)</Text>
-        <TextInput
-          style={{ borderWidth: 1, padding: 8, marginBottom: 10 }}
-          value={pickup}
-          onChangeText={setPickup}
-        />
+        <Text style={{ marginBottom: 6 }}>
+          Select which location to set on the map:
+        </Text>
 
-        <Text>Destination (optional)</Text>
-        <TextInput
-          style={{ borderWidth: 1, padding: 8, marginBottom: 10 }}
-          value={destination}
-          onChangeText={setDestination}
-        />
-
-        <View style={{ flexDirection: "row", marginBottom: 10 }}>
-          <Button title="Set Pickup on Map" onPress={() => setSelecting("pickup")} />
-          <View style={{ width: 10 }} />
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            marginBottom: 10,
+          }}
+        >
           <Button
-            title="Set Dropoff on Map"
-            onPress={() => setSelecting("dropoff")}
+            title={
+              selection === "pickup"
+                ? "Choosing PICKUP (tap map / POI)"
+                : "Set pickup"
+            }
+            onPress={() => setSelection("pickup")}
+          />
+          <Button
+            title={
+              selection === "dropoff"
+                ? "Choosing DROPOFF (tap map / POI)"
+                : "Set dropoff"
+            }
+            onPress={() => setSelection("dropoff")}
           />
         </View>
 
-        <Button title="Request Ride" onPress={requestRide} />
+        <Text>
+          Pickup:{" "}
+          {pickupLabel
+            ? pickupLabel
+            : pickupCoord
+            ? "Pinned location"
+            : "Not set"}
+        </Text>
+        <Text style={{ marginBottom: 8 }}>
+          Dropoff:{" "}
+          {dropoffLabel
+            ? dropoffLabel
+            : dropoffCoord
+            ? "Pinned location"
+            : "Not set"}
+        </Text>
+
+        <Button title="REQUEST RIDE" onPress={requestRide} />
 
         {msg ? <Text style={{ marginTop: 10 }}>{msg}</Text> : null}
 
-        <View style={{ marginTop: 30 }}>
+        <View style={{ marginTop: 20 }}>
           <Button title="Logout" onPress={logout} color="red" />
         </View>
       </View>
 
-      {/* MAP AREA */}
-      <MapView style={{ flex: 1 }} initialRegion={initialRegion} onPress={handleMapPress}>
+      {/* map area */}
+      <MapView
+        style={{ flex: 1 }}
+        initialRegion={MATI_DEFAULT_REGION}
+        onPress={handleMapPress}
+        onPoiClick={handlePoiClick}
+      >
         {pickupCoord && (
-          <Marker coordinate={pickupCoord} title="Pickup" pinColor="green" />
+          <Marker
+            coordinate={pickupCoord}
+            title={pickupLabel || "Pickup"}
+            pinColor="green"
+          />
         )}
         {dropoffCoord && (
-          <Marker coordinate={dropoffCoord} title="Dropoff" pinColor="red" />
+          <Marker
+            coordinate={dropoffCoord}
+            title={dropoffLabel || "Dropoff"}
+            pinColor="red"
+          />
         )}
       </MapView>
     </View>
