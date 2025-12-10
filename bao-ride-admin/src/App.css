@@ -57,68 +57,76 @@ body {
   background: white;
 }
 
-/* Tabs */
+/* Tabs – UPDATED ONLY THIS PART */
 
 .tabs {
-  display: flex;
-  justify-content: center;
-  gap: 36px;
-  background: white;
-  padding: 12px 0 4px;
-  border-bottom: 1px solid #e5e7eb;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 14px auto 0;
+  padding: 0.45rem;
+  background: #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 
 .tab {
-  border: none;
-  background: none;
-  font-size: 16px;
-  padding: 6px 0;
-  cursor: pointer;
-  color: #6b7280;
   position: relative;
+  border: none;
+  background: transparent;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.tab:hover {
+  background-color: rgba(99, 102, 241, 0.06);
+  transform: translateY(-1px);
 }
 
 .tab-active {
-  color: #4f46e5;
+  background: linear-gradient(135deg, #dbeafe, #fef3c7);
+  color: #1f2933;
   font-weight: 600;
+  box-shadow: 0 8px 20px rgba(30, 64, 175, 0.25);
 }
 
-/* Underline bar below tabs */
+/* Animated underline inside each active tab */
+.tab::after {
+  content: "";
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb, #f97316);
+  transition: width 0.25s ease, left 0.25s ease, opacity 0.2s ease;
+  opacity: 0;
+}
 
+.tab-active::after {
+  width: 60%;
+  left: 20%;
+  opacity: 1;
+}
+
+/* Old underline bar – keep but hide so it doesn't affect layout */
 .tab-underline-wrapper {
-  height: 4px;
-  background: #e5e7eb;
-  position: relative;
+  height: 0;
+  background: transparent;
+  overflow: hidden;
 }
 
 .tab-underline {
-  position: absolute;
-  top: 0;
-  height: 4px;
-  width: 16.6667%; /* 6 tabs */
-  background: #7c3aed;
-  border-radius: 999px;
-  transition: left 0.25s ease;
+  display: none;
 }
 
-.tab-home {
-  left: 0%;
-}
-.tab-rides {
-  left: 16.6667%;
-}
-.tab-drivers {
-  left: 33.3333%;
-}
-.tab-about {
-  left: 50%;
-}
-.tab-contact {
-  left: 66.6667%;
-}
-.tab-services {
-  left: 83.3333%;
-}
 
 
 
@@ -648,4 +656,15 @@ body {
 .drivers-danger {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+
+/* Home page spacing improvements */
+.home-page-wrapper {
+  padding-top: 12px;
+}
+
+.spaced-section {
+  margin-top: 14px;
+  margin-bottom: 14px;
 }

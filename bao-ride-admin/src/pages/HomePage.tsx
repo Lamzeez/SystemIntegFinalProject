@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api";
 import { getSocket } from "../socket";
 
-
 interface Ride {
   id: number;
   status?: string | null;
@@ -54,7 +53,6 @@ export default function HomePage() {
     };
   }, []);
 
-
   if (loading) return <p>Loading dashboard...</p>;
   if (errorMsg) return <p>{errorMsg}</p>;
   if (!data) return <p>No data available.</p>;
@@ -75,16 +73,16 @@ export default function HomePage() {
     : [];
 
   return (
-    <div className="page">
+    <div className="page home-page-wrapper">
       {/* Top metric cards */}
-      <div className="card-grid">
+      <div className="card-grid spaced-section">
         <MetricCard title="Total Driver" value={totalDrivers} />
         <MetricCard title="Active Rides" value={activeRides} />
         <MetricCard title="Today's Revenue" value={money(todaysRevenue)} />
         <MetricCard title="Total Rides" value={totalRides} />
       </div>
 
-      <div className="grid-2">
+      <div className="grid-2 spaced-section">
         {/* Recent rides */}
         <section className="panel">
           <h2 className="panel-title">Recent Rides</h2>
@@ -106,6 +104,7 @@ export default function HomePage() {
                     <span className="ride-fare">{money(r.fare)}</span>
                     <span className={statusClass}>{statusLabel}</span>
                   </div>
+
                   <div className="ride-row small">
                     <div>
                       <div className="label">Passenger</div>
@@ -130,9 +129,7 @@ export default function HomePage() {
           <h2 className="panel-title">Drivers management</h2>
           <div className="driver-actions">
             <button className="btn btn-primary">Add new Driver</button>
-            <button className="btn">View all locations</button>
-            <button className="btn">Analytics and reports</button>
-            <button className="btn">Manage vehicle</button>
+            {/* Removed non-functional buttons */}
           </div>
         </section>
       </div>
