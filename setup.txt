@@ -1,0 +1,235 @@
+BAO-RIDE — Setup & Installation Guide
+(A ride-hailing system for Bao/Tuktuk community transport)
+
+============================================================
+1) PROJECT STRUCTURE (ROOT)
+============================================================
+/bao-ride-admin        -> Admin web dashboard (Vite + React)
+/bao-ride-backend      -> Backend API + realtime (Node.js)
+/bao-ride-passenger    -> Passenger mobile app (React Native + Expo)
+/bao-ride-driver       -> Driver mobile app (React Native + Expo)
+/database.sql          -> Database schema + seed (import to MySQL)
+
+
+============================================================
+2) REQUIRED SOFTWARE / TECHNOLOGIES
+============================================================
+Install these on your PC:
+
+A) Core Requirements
+- Git
+- Node.js (recommended: LTS / Node 18+)
+- npm (comes with Node)
+- MySQL Server (recommended: MySQL 8+)
+
+B) For Mobile Apps (Expo)
+- Expo Go app on your phone (Android/iOS)
+- (Optional) Android Studio / Xcode if you want emulators/simulators
+
+C) Optional but Useful
+- ngrok (to expose backend to internet/testing)
+- MySQL Workbench (or phpMyAdmin) for managing DB
+
+
+============================================================
+3) CLONE THE REPOSITORY
+============================================================
+Open a terminal in the folder where you want the project:
+
+git clone <YOUR_PUBLIC_REPO_URL>
+cd BAORIDE   (or the repo folder name)
+
+
+============================================================
+4) DATABASE SETUP (MySQL)
+============================================================
+1) Start your MySQL server
+
+2) Create a database (example name: baoride):
+- Using MySQL CLI:
+  CREATE DATABASE baoride;
+
+3) Import the schema from the root database.sql:
+- Using MySQL CLI:
+  mysql -u root -p baoride < database.sql
+
+(If you use Workbench/phpMyAdmin, you can import database.sql there.)
+
+4) Confirm tables were created (example):
+SHOW TABLES;
+
+
+============================================================
+5) BACKEND SETUP (bao-ride-backend)
+============================================================
+Open Terminal 1:
+
+cd bao-ride-backend
+npm install
+
+A) Configure environment variables
+- Create a file: bao-ride-backend/.env
+
+Example .env (adjust to your MySQL credentials):
+------------------------------------------------------------
+PORT=4000
+
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=baoride
+
+JWT_SECRET=change_this_to_a_long_random_string
+------------------------------------------------------------
+
+NOTE:
+- If your backend uses different env variable names, open:
+  bao-ride-backend/db.js and bao-ride-backend/index.js
+  and match the .env keys to what the code expects.
+
+B) (Optional) Seed admin account
+If your repo includes a seeder:
+cd bao-ride-backend
+node seedAdmin.js
+
+C) Run backend
+npm run dev
+
+Backend usually runs at:
+http://localhost:4000
+
+
+============================================================
+6) ADMIN UI SETUP (bao-ride-admin)
+============================================================
+Open Terminal 3:
+
+cd bao-ride-admin
+npm install
+npm run dev
+
+Admin usually runs at:
+http://localhost:5173
+
+NOTE:
+- Admin must point to the backend base URL.
+- If you see an API_BASE_URL / BACKEND_URL in the admin code:
+  check env like .env or a config file inside bao-ride-admin/src
+  and set it to:
+  http://localhost:4000
+  or your ngrok URL if using ngrok.
+
+
+============================================================
+7) MOBILE APPS SETUP (Passenger + Driver)
+============================================================
+You will run BOTH mobile apps separately (2 terminals).
+
+A) Passenger App
+Open Terminal 4:
+
+cd bao-ride-passenger
+npm install
+npx expo start --tunnel
+
+B) Driver App
+Open Terminal 5:
+
+cd bao-ride-driver
+npm install
+npx expo start --tunnel
+
+Then:
+- Install “Expo Go” on your phone
+- Scan the QR code shown in the terminal
+
+IMPORTANT (API URL):
+- Passenger/Driver apps must point to the backend base URL.
+- Look for the API configuration in each app, commonly in:
+  - src/api.ts
+  - src/api/index.ts
+  - constants/* (e.g., constants/config.ts)
+- If using localhost, phones cannot access your PC’s "localhost".
+  Use one of these options:
+
+Option 1 (Recommended for beginners): Expo tunnel + ngrok
+- Run ngrok for the backend (see section 8)
+- Set the apps’ base URL to the ngrok HTTPS URL
+
+Option 2: Same Wi-Fi Network
+- Set the base URL to your PC’s LAN IP:
+  http://192.168.x.x:4000
+
+
+============================================================
+8) NGROK SETUP (OPTIONAL BUT USEFUL)
+============================================================
+Open Terminal 2:
+
+ngrok http 4000
+
+Copy the HTTPS forwarding URL, example:
+https://xxxx-xxxx.ngrok-free.app
+
+Use that as the base URL in:
+- passenger app API config
+- driver app API config
+- admin app API config (if it also calls backend)
+
+
+============================================================
+9) HOW TO RUN THE FULL SYSTEM (COMMAND FLOW)
+============================================================
+Terminal 1 (backend):
+cd bao-ride-backend
+npm run dev
+
+Terminal 2 (ngrok, optional):
+ngrok http 4000
+
+Terminal 3 (admin UI):
+cd bao-ride-admin
+npm run dev
+
+Terminal 4 (passenger UI):
+cd bao-ride-passenger
+npx expo start --tunnel
+
+Terminal 5 (driver UI):
+cd bao-ride-driver
+npx expo start --tunnel
+
+
+============================================================
+10) COMMON TROUBLESHOOTING
+============================================================
+A) “Cannot connect to DB”
+- Check MySQL is running
+- Verify .env credentials
+- Confirm database name matches (DB_NAME)
+
+B) “Login works but apps can’t load data”
+- Base URL mismatch (localhost vs ngrok vs LAN IP)
+- Make sure backend is running on PORT 4000
+- If using ngrok, update mobile/admin base URL to ngrok HTTPS URL
+
+C) Expo QR code not working / stuck
+- Try:
+  npx expo start --tunnel
+- Make sure Expo Go is installed and logged in if required
+
+D) Ports already in use
+- Change PORT in backend .env (ex: 4001)
+- Update base URL in admin/passenger/driver configs accordingly
+
+
+============================================================
+11) WHAT TO EDIT WHEN DEPLOYING / SHARING
+============================================================
+Before publishing the repo:
+- Add example env file:
+  bao-ride-backend/.env.example (DO NOT upload real .env)
+- Document where base URLs are configured in:
+  - bao-ride-admin
+  - bao-ride-passenger
+  - bao-ride-driver
