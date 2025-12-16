@@ -116,15 +116,23 @@ export default function HomeScreen({ onOpenRide }: Props) {
 
 
   const handleLogout = () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to logout?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Logout", style: "destructive", onPress: logout },
-      ]
-    );
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert("Logout successful", "You have been logged out.", [
+            {
+              text: "OK",
+              onPress: () => logout(),
+            },
+          ]);
+        },
+      },
+    ]);
   };
+
 
 
   return (

@@ -77,15 +77,15 @@ export default function ServicesPage() {
         <div className="pricing-grid">
           <div>
             <div className="pricing-card-title">
-              Base Fare – First 2 kilometers
+              Base Fare – First 5 kilometers
             </div>
-            <div className="pricing-amount">₱40.00</div>
+            <div className="pricing-amount">₱15.00</div>
           </div>
           <div>
             <div className="pricing-card-title">
               Per Kilometer – Additional distance
             </div>
-            <div className="pricing-amount">₱15.00</div>
+            <div className="pricing-amount">₱3.00</div>
           </div>
           <div>
             <div className="pricing-card-title">

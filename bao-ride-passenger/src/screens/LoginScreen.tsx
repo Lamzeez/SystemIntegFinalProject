@@ -1,6 +1,13 @@
-// src/screens/LoginScreen.tsx
+// src/screens/LoginScreen.tsx (PASSENGER)
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+} from "react-native";
 import { api } from "../api";
 import { useAuth } from "../AuthContext";
 import { getSocket } from "../socket";
@@ -26,15 +33,30 @@ export default function LoginScreen({
         return;
       }
 
-      await login(res.data.token, res.data.user);
+      const token = res.data.token;
 
-      const socket = getSocket();
-      socket.emit("auth:passenger", { token: res.data.token });
-
-      const check = await api.get("/passenger/rides/current");
-      onLoginRideCheck(check.data.ride?.id || null);
+      // Check active ride using token directly (so we can still show Alert before login() unmounts this screen)
+      const check = await api.get("/passenger/rides/current", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const rideId = check.data.ride?.id || null;
 
       setMsg("");
+
+      // SAME “success modal” pattern as RegisterScreen (Alert.alert)
+      Alert.alert("Login successful", "Welcome back! You’re now signed in.", [
+        {
+          text: "OK",
+          onPress: async () => {
+            await login(token, res.data.user);
+
+            const socket = getSocket();
+            socket.emit("auth:passenger", { token });
+
+            onLoginRideCheck(rideId);
+          },
+        },
+      ]);
     } catch (err) {
       console.log(err);
       setMsg("Login failed.");
@@ -82,7 +104,6 @@ export default function LoginScreen({
           <Text style={styles.secondaryButtonText}>Register</Text>
         </TouchableOpacity>
       </View>
-
     </View>
   );
 }
@@ -92,7 +113,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 4,
     alignItems: "center",
-    backgroundColor: "#1976D2", // same vibe as app
+    backgroundColor: "#1976D2",
   },
   primaryButtonText: {
     color: "white",
@@ -111,4 +132,3 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
 });
-

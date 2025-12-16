@@ -14,10 +14,17 @@ cd bao-ride-admin
 npm run dev
 
 
+Terminal 4 (passenger UI):
+cd bao-ride-passenger
+npx expo start --tunnel
+
+
+Terminal 5 (driver UI):
+cd bao-ride-driver
+npx expo start --tunnel
+
+
 Then open http://localhost:5173/ in your browser.
-
-
-
 
 ===================================================
 Pre-reqs:

@@ -4,16 +4,59 @@ import AboutPage from "./pages/AboutPage";
 import ContactPage from "./pages/ContactPage";
 import ServicesPage from "./pages/ServicesPage";
 import DriversPage from "./pages/DriversPage";
-import RidesPage from "./pages/RidesPage";   // 👈 new
+import RidesPage from "./pages/RidesPage"; // 👈 new
 import LoginPage from "./pages/LoginPage";
 import "./App.css";
 import { useAuth } from "./AuthContext";
 
 type Tab = "home" | "rides" | "drivers" | "about" | "contact" | "services";
 
+function ConfirmModal({
+  title,
+  message,
+  confirmText = "Log Out",
+  cancelText = "Cancel",
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal-card">
+        <div className="modal-title">{title}</div>
+        <div className="modal-message">{message}</div>
+
+        <div className="modal-actions">
+          <button
+            type="button"
+            className="modal-button secondary"
+            onClick={onCancel}
+          >
+            {cancelText}
+          </button>
+          <button
+            type="button"
+            className="modal-button danger"
+            onClick={onConfirm}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { auth, logout } = useAuth();
   const [tab, setTab] = useState<Tab>("home");
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   if (!auth.token || !auth.user) {
     return <LoginPage />;
@@ -36,8 +79,26 @@ export default function App() {
     }
   };
 
+  const handleLogoutClick = () => setShowLogoutConfirm(true);
+  const handleCancelLogout = () => setShowLogoutConfirm(false);
+  const handleConfirmLogout = () => {
+    setShowLogoutConfirm(false);
+    logout();
+  };
+
   return (
     <div className="app-root">
+      {showLogoutConfirm && (
+        <ConfirmModal
+          title="Confirm Logout"
+          message="Are you sure you want to log out?"
+          cancelText="Stay Logged In"
+          confirmText="Log Out"
+          onCancel={handleCancelLogout}
+          onConfirm={handleConfirmLogout}
+        />
+      )}
+
       <header className="header">
         <div>
           <h1 className="logo-title">Bao Ride</h1>
@@ -48,7 +109,7 @@ export default function App() {
             {auth.user?.name} ({auth.user?.role})
           </span>
           <button
-            onClick={logout}
+            onClick={handleLogoutClick}
             style={{
               borderRadius: 999,
               border: "none",

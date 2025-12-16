@@ -668,3 +668,66 @@ body {
   margin-top: 14px;
   margin-bottom: 14px;
 }
+
+
+/* Success modal (used by LoginPage) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 9999;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 18px 18px 16px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.35);
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.modal-message {
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.45;
+  margin-bottom: 14px;
+}
+
+.modal-button {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(90deg, #2563eb, #8b5cf6);
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.modal-button.secondary {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.modal-button.danger {
+  background: #dc2626;
+  color: #ffffff;
+}

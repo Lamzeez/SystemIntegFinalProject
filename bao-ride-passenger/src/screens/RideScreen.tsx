@@ -1,5 +1,5 @@
 // src/screens/RideScreen.tsx (PASSENGER)
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { View, Text, TouchableOpacity, Alert } from "react-native";
 import { api } from "../api";
 import { getSocket } from "../socket";
@@ -39,6 +39,8 @@ export default function RideScreen({
 
   const [routeCoords, setRouteCoords] = useState<Coord[]>([]);
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
+  const acceptedShownRef = useRef(false);
+
 
   // Load ride if we didn't get it as initialRide (e.g., app reopened)
   useEffect(() => {
@@ -64,36 +66,50 @@ export default function RideScreen({
     const socket = getSocket();
 
     const handleUpdate = (payload: any) => {
-    console.log("PASSENGER ride:status:update", payload);
+      console.log("PASSENGER ride:status:update", payload);
 
-    if (payload.rideId !== rideId) return;
+      if (payload.rideId !== rideId) return;
 
-    setRide((prev: any) => ({
-      ...prev,
-      status: payload.status ?? prev?.status,
-      fare: payload.fare ?? prev?.fare,
-      distance_km: payload.distanceKm ?? prev?.distance_km,
-      driver_name: payload.driver_name ?? prev?.driver_name, // keep driver name here
-    }));
+      // ✅ NEW: show success modal once when driver accepts (assigned)
+      if (payload.status === "assigned" && !acceptedShownRef.current) {
+        acceptedShownRef.current = true;
 
-    // 👇 Status text should only reflect the ride status
-    if (payload.status) {
-      setStatusText(payload.status);
-    }
+        const driverName = payload.driver_name ?? ride?.driver_name;
+        Alert.alert(
+          "Ride accepted",
+          driverName
+            ? `Your ride has been accepted by ${driverName}.`
+            : "Your ride has been accepted by a driver.",
+          [{ text: "OK" }]
+        );
+      }
 
-    if (payload.status === "completed") {
-      Alert.alert(
-        "Ride Completed",
-        `Total Fare: ₱${payload.fare ?? ride?.fare ?? "—"}`
-      );
-      onEndRide();
-    }
+      setRide((prev: any) => ({
+        ...prev,
+        status: payload.status ?? prev?.status,
+        fare: payload.fare ?? prev?.fare,
+        distance_km: payload.distanceKm ?? prev?.distance_km,
+        driver_name: payload.driver_name ?? prev?.driver_name,
+      }));
 
-    if (payload.status === "cancelled") {
-      Alert.alert("Ride Cancelled", "Your ride has been cancelled.");
-      onEndRide();
-    }
-  };
+      if (payload.status) {
+        setStatusText(payload.status);
+      }
+
+      if (payload.status === "completed") {
+        Alert.alert(
+          "Ride Completed",
+          `Total Fare: ₱${payload.fare ?? ride?.fare ?? "—"}`
+        );
+        onEndRide();
+      }
+
+      if (payload.status === "cancelled") {
+        Alert.alert("Ride Cancelled", "Your ride has been cancelled.");
+        onEndRide();
+      }
+    };
+
 
 
 

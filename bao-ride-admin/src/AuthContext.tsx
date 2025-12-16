@@ -1,5 +1,5 @@
 // src/AuthContext.tsx
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useState } from "react";
 
 type User = {
   id: number;
@@ -19,7 +19,17 @@ type AuthContextType = {
   logout: () => void;
 };
 
+type FlashPayload = { type: "success" | "error"; message: string };
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+function setFlash(payload: FlashPayload) {
+  try {
+    localStorage.setItem("bao_flash", JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [auth, setAuth] = useState<AuthState>(() => {
@@ -38,6 +48,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const logout = () => {
+    // one-time success message that LoginPage will show after App reroutes to it
+    setFlash({ type: "success", message: "✅ Logged out successfully." });
+
     localStorage.removeItem("bao_token");
     localStorage.removeItem("bao_user");
     setAuth({ token: null, user: null });

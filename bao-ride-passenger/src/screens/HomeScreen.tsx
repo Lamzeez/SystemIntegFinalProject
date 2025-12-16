@@ -10,6 +10,7 @@ import {
 import MapView, {
   Marker,
   MapPressEvent,
+  Polygon,
   PoiClickEvent,
   Region,
 } from "react-native-maps";
@@ -40,6 +41,30 @@ export default function HomeScreen({
     latitudeDelta: 0.05,
     longitudeDelta: 0.05,
   };
+
+  // ✅ Bao-Ride service area (RECTANGLE / BOUNDS)
+  // Source bbox for Mati area: (south 6.13327, west 126.09071, north 7.08391, east 126.49175)
+  const MATI_SERVICE_BOUNDS = {
+    minLat: 6.13327,
+    maxLat: 7.08391,
+    minLng: 126.09071,
+    maxLng: 126.49175,
+  };
+
+  const isWithinMatiServiceArea = (p: LatLng) =>
+    p.latitude >= MATI_SERVICE_BOUNDS.minLat &&
+    p.latitude <= MATI_SERVICE_BOUNDS.maxLat &&
+    p.longitude >= MATI_SERVICE_BOUNDS.minLng &&
+    p.longitude <= MATI_SERVICE_BOUNDS.maxLng;
+
+  // Optional: draw the rectangle on the map
+  const MATI_SERVICE_RECT: LatLng[] = [
+    { latitude: MATI_SERVICE_BOUNDS.minLat, longitude: MATI_SERVICE_BOUNDS.minLng }, // SW
+    { latitude: MATI_SERVICE_BOUNDS.maxLat, longitude: MATI_SERVICE_BOUNDS.minLng }, // NW
+    { latitude: MATI_SERVICE_BOUNDS.maxLat, longitude: MATI_SERVICE_BOUNDS.maxLng }, // NE
+    { latitude: MATI_SERVICE_BOUNDS.minLat, longitude: MATI_SERVICE_BOUNDS.maxLng }, // SE
+  ];
+
 
   // Check if passenger already has an active ride
   useEffect(() => {
@@ -75,30 +100,48 @@ export default function HomeScreen({
 
   const handleMapPress = (e: MapPressEvent) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
+    const chosen = { latitude, longitude };
+
+    if (!isWithinMatiServiceArea(chosen)) {
+      Alert.alert(
+        "Out of service area",
+        "Bao-Ride is only available inside the Mati service rectangle."
+      );
+      return;
+    }
 
     if (selection === "pickup") {
-      setPickupCoord({ latitude, longitude });
-      // Clear any previous POI name so the label becomes "Pinned pickup"
+      setPickupCoord(chosen);
       setPickupLabel(null);
     } else {
-      setDropoffCoord({ latitude, longitude });
-      // Clear any previous POI name so the label becomes "Pinned dropoff"
+      setDropoffCoord(chosen);
       setDropoffLabel(null);
     }
   };
 
+
   const handlePoiClick = (e: PoiClickEvent) => {
     const { coordinate, name } = e.nativeEvent;
     const { latitude, longitude } = coordinate;
+    const chosen = { latitude, longitude };
+
+    if (!isWithinMatiServiceArea(chosen)) {
+      Alert.alert(
+        "Out of service area",
+        "Bao-Ride is only available inside the Mati service rectangle."
+      );
+      return;
+    }
 
     if (selection === "pickup") {
-      setPickupCoord({ latitude, longitude });
+      setPickupCoord(chosen);
       setPickupLabel(name || "Pinned pickup");
     } else {
-      setDropoffCoord({ latitude, longitude });
+      setDropoffCoord(chosen);
       setDropoffLabel(name || "Pinned dropoff");
     }
   };
+
 
 
   const canRequest = !!(pickupCoord && dropoffCoord);
@@ -111,6 +154,15 @@ export default function HomeScreen({
       );
       return;
     }
+
+    if (!isWithinMatiServiceArea(pickupCoord) || !isWithinMatiServiceArea(dropoffCoord)) {
+      Alert.alert(
+        "Out of service area",
+        "Pickup and dropoff must both be inside the Mati service rectangle."
+      );
+      return;
+    }
+
 
     const pickupAddress = pickupLabel || "Pinned pickup";
     const dropoffAddress = dropoffLabel || "Pinned dropoff";
@@ -126,8 +178,20 @@ export default function HomeScreen({
       });
 
       const ride = res.data.ride;
+
       if (ride?.id) {
-        onRideCreated(ride);
+        Alert.alert(
+          "Ride requested",
+          "Your ride request has been sent. Please wait for a driver.",
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                onRideCreated(ride); // navigate AFTER the success modal
+              },
+            },
+          ]
+        );
       } else {
         Alert.alert("Error", "Ride requested, but no ride ID returned.");
       }
@@ -136,6 +200,7 @@ export default function HomeScreen({
       Alert.alert("Error", "Failed to request ride.");
     }
   };
+
 
   const pickupText = pickupLabel
     ? pickupLabel
@@ -151,15 +216,25 @@ export default function HomeScreen({
 
 
     const handleLogoutPress = () => {
-      Alert.alert(
-        "Logout",
-        "Are you sure you want to logout?",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Logout", style: "destructive", onPress: logout },
-        ]
-      );
+      Alert.alert("Logout", "Are you sure you want to logout?", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert("Logout successful", "You have been logged out.", [
+              {
+                text: "OK",
+                onPress: () => {
+                  logout(); // logout AFTER the success modal
+                },
+              },
+            ]);
+          },
+        },
+      ]);
     };
+
 
   return (
     <View style={{ flex: 1}}>
@@ -245,6 +320,7 @@ export default function HomeScreen({
         onPress={handleMapPress}
         onPoiClick={handlePoiClick}
       >
+        <Polygon coordinates={MATI_SERVICE_RECT} />
         {pickupCoord && (
           <Marker
             coordinate={pickupCoord}

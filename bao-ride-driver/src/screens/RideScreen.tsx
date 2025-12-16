@@ -1,5 +1,5 @@
 // bao-ride-driver/src/screens/RideScreen.tsx (DRIVER VERSION)
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef  } from "react";
 import { View, Text, TouchableOpacity, Alert } from "react-native";
 import { api } from "../api";
 import { getSocket } from "../socket";
@@ -41,6 +41,8 @@ export default function RideScreen({
   const [statusText, setStatusText] = useState<string>(
     initialRide?.status || "requested"
   );
+
+  const acceptedShownRef = useRef(false);
 
   const [routeCoords, setRouteCoords] = useState<Coord[]>([]);
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
@@ -104,6 +106,11 @@ export default function RideScreen({
       });
 
       setStatusText(payload.status);
+      if (payload.status === "assigned" && !acceptedShownRef.current) {
+        acceptedShownRef.current = true;
+        Alert.alert("Ride accepted", "You have accepted this ride.", [{ text: "OK" }]);
+      }
+
 
       if (payload.status === "completed") {
         const finalFare =
@@ -194,14 +201,18 @@ export default function RideScreen({
       await api.post(`/driver/rides/${rideId}/accept`);
       setRide((prev) => (prev ? { ...prev, status: "assigned" } : prev));
       setStatusText("assigned");
+
+      // ✅ NEW: success modal (same style as register/login)
+      if (!acceptedShownRef.current) {
+        acceptedShownRef.current = true;
+        Alert.alert("Ride accepted", "You have accepted this ride.", [{ text: "OK" }]);
+      }
     } catch (e: any) {
       console.log("Accept failed", e.response?.data || e);
-      Alert.alert(
-        "Error",
-        e.response?.data?.error || "Failed to accept ride."
-      );
+      Alert.alert("Error", e.response?.data?.error || "Failed to accept ride.");
     }
   };
+
 
   const startRide = async () => {
     try {

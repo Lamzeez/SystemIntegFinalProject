@@ -13,7 +13,7 @@ USE bao_ride;
 -- =========================================================
 -- USERS
 -- - Holds all accounts: admin, driver, passenger
--- =========================================================
+-- -- =========================================================
 CREATE TABLE IF NOT EXISTS users (
   id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   name          VARCHAR(100) NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
   PRIMARY KEY (id),
   UNIQUE KEY uq_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
+-- 
 -- =========================================================
 -- DRIVERS
 -- - Extra info for driver accounts
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS driver_locations (
 --   'Admin',
 --   'admin@example.com',
 --   NULL,
---   '$2a$10$REPLACE_THIS_WITH_A_REAL_BCRYPT_HASH',
+--   '$2a$10$CwTycUXWf3z.Q3d7r1k9JOyBPvWwEk8yYpQkO2K5XYb0A4k4rH52u',
 --   'admin'
 -- );
 

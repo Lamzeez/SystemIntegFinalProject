@@ -1,6 +1,6 @@
 // src/screens/LoginScreen.tsx (DRIVER)
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from "react-native";
 import { api } from "../api";
 import { useAuth } from "../AuthContext";
 import { getSocket } from "../socket";
@@ -24,29 +24,43 @@ export default function LoginScreen({
         return;
       }
 
-      await login(res.data.token, res.data.user);
+      const token = res.data.token;
 
-      const socket = getSocket();
-      console.log("Driver login: emitting auth:driver");
-      socket.emit("auth:driver", { token: res.data.token });
-
-      // Check if this driver already has an active ride
+      // Check active ride BEFORE login() (so this screen stays mounted for the Alert)
+      let rideId: number | null = null;
       try {
-        const current = await api.get("/driver/rides/current");
-        const id = current.data.ride?.id || null;
-        console.log("Current driver ride after login:", id);
-        onLoginRideCheck(id);
+        const current = await api.get("/driver/rides/current", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        rideId = current.data.ride?.id || null;
       } catch (e) {
         console.log("Failed to check current ride after login", e);
-        onLoginRideCheck(null);
+        rideId = null;
       }
 
       setMsg("");
+
+      // SAME success modal style as your passenger Register/Login (Alert.alert)
+      Alert.alert("Login successful", "Welcome back! You’re now signed in.", [
+        {
+          text: "OK",
+          onPress: async () => {
+            await login(token, res.data.user);
+
+            const socket = getSocket();
+            console.log("Driver login: emitting auth:driver");
+            socket.emit("auth:driver", { token });
+
+            onLoginRideCheck(rideId);
+          },
+        },
+      ]);
     } catch (err: any) {
       console.log("Driver login failed", err.response?.data || err);
       setMsg("Login failed.");
     }
   };
+
 
   return (
     <View style={{ padding: 20, marginTop: 20 }}>

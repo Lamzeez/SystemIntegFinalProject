@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { getSocket } from "../socket";
 
@@ -32,6 +32,70 @@ const emptyForm: FormState = {
   status: "offline",
 };
 
+function SuccessModal({
+  title = "Success",
+  message,
+  onClose,
+}: {
+  title?: string;
+  message: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal-card">
+        <div className="modal-title">{title}</div>
+        <div className="modal-message">{message}</div>
+        <button type="button" className="modal-button" onClick={onClose}>
+          OK
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmModal({
+  title,
+  message,
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal-card">
+        <div className="modal-title">{title}</div>
+        <div className="modal-message">{message}</div>
+
+        <div className="modal-actions">
+          <button
+            type="button"
+            className="modal-button secondary"
+            onClick={onCancel}
+          >
+            {cancelText}
+          </button>
+          <button
+            type="button"
+            className="modal-button danger"
+            onClick={onConfirm}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DriversPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,13 +104,25 @@ export default function DriversPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Modals
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{
+    id: number;
+    name?: string | null;
+    email?: string | null;
+  } | null>(null);
+
+  const isBlocked = useMemo(
+    () => saving || !!successMsg || !!confirmDelete,
+    [saving, successMsg, confirmDelete]
+  );
+
   // Load drivers from backend
   const loadDrivers = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
       const res = await api.get<Driver[]>("/admin/drivers");
-      // Make sure we always have an array
       const list = Array.isArray(res.data) ? res.data : [];
       setDrivers(list);
     } catch (err) {
@@ -73,12 +149,10 @@ export default function DriversPage() {
 
     socket.on("driver:status:update", handleStatusUpdate);
 
-    // Cleanup when component unmounts
     return () => {
       socket.off("driver:status:update", handleStatusUpdate);
     };
   }, []);
-
 
   const handleChange = (field: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -86,6 +160,8 @@ export default function DriversPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isBlocked) return;
+
     setSaving(true);
     setErrorMsg(null);
 
@@ -99,8 +175,11 @@ export default function DriversPage() {
           vehicle_model: form.vehicle_model,
           status: form.status,
         });
+
+        setSuccessMsg("✅ Driver updated successfully.");
       } else {
         await api.post("/admin/drivers", form);
+        setSuccessMsg("✅ Driver created successfully.");
       }
 
       setForm(emptyForm);
@@ -129,20 +208,48 @@ export default function DriversPage() {
     });
   };
 
-  const handleDelete = async (id: number) => {
-    const ok = window.confirm("Delete this driver?");
-    if (!ok) return;
+  // Step 1: open confirm modal
+  const requestDelete = (driver: Driver) => {
+    setConfirmDelete({ id: driver.id, name: driver.name, email: driver.email });
+  };
+
+  // Step 2: confirm -> delete -> success modal
+  const confirmDeleteNow = async () => {
+    if (!confirmDelete) return;
+
+    const id = confirmDelete.id;
     try {
       await api.delete(`/admin/drivers/${id}`);
       setDrivers((prev) => prev.filter((d) => d.id !== id));
+      setSuccessMsg("✅ Driver deleted successfully.");
     } catch (err) {
       console.error("Delete driver failed", err);
-      alert("Failed to delete driver.");
+      setErrorMsg("Failed to delete driver.");
+    } finally {
+      setConfirmDelete(null);
     }
   };
 
   return (
     <div className="page">
+      {/* Modals */}
+      {successMsg && (
+        <SuccessModal message={successMsg} onClose={() => setSuccessMsg(null)} />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete driver?"
+          message={`Are you sure you want to delete ${
+            confirmDelete.name || confirmDelete.email || "this driver"
+          }? This action cannot be undone.`}
+          cancelText="Cancel"
+          confirmText="Delete"
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={confirmDeleteNow}
+        />
+      )}
+
       {/* Form panel */}
       <section className="panel">
         <h2 className="panel-title">
@@ -158,6 +265,7 @@ export default function DriversPage() {
                 value={form.name}
                 onChange={(e) => handleChange("name", e.target.value)}
                 required
+                disabled={isBlocked}
               />
             </label>
 
@@ -169,6 +277,7 @@ export default function DriversPage() {
                 value={form.email}
                 onChange={(e) => handleChange("email", e.target.value)}
                 required
+                disabled={isBlocked}
               />
             </label>
 
@@ -178,6 +287,7 @@ export default function DriversPage() {
                 className="drivers-input"
                 value={form.phone}
                 onChange={(e) => handleChange("phone", e.target.value)}
+                disabled={isBlocked}
               />
             </label>
 
@@ -190,6 +300,7 @@ export default function DriversPage() {
                   value={form.password}
                   onChange={(e) => handleChange("password", e.target.value)}
                   required
+                  disabled={isBlocked}
                 />
               </label>
             )}
@@ -199,9 +310,8 @@ export default function DriversPage() {
               <input
                 className="drivers-input"
                 value={form.vehicle_plate}
-                onChange={(e) =>
-                  handleChange("vehicle_plate", e.target.value)
-                }
+                onChange={(e) => handleChange("vehicle_plate", e.target.value)}
+                disabled={isBlocked}
               />
             </label>
 
@@ -210,9 +320,8 @@ export default function DriversPage() {
               <input
                 className="drivers-input"
                 value={form.vehicle_model}
-                onChange={(e) =>
-                  handleChange("vehicle_model", e.target.value)
-                }
+                onChange={(e) => handleChange("vehicle_model", e.target.value)}
+                disabled={isBlocked}
               />
             </label>
 
@@ -223,6 +332,7 @@ export default function DriversPage() {
                   className="drivers-input"
                   value={form.status}
                   onChange={(e) => handleChange("status", e.target.value)}
+                  disabled={isBlocked}
                 >
                   <option value="offline">Offline</option>
                   <option value="online">Online</option>
@@ -238,7 +348,7 @@ export default function DriversPage() {
             <button
               className="drivers-save-button"
               type="submit"
-              disabled={saving}
+              disabled={isBlocked}
             >
               {saving
                 ? editingId
@@ -253,6 +363,7 @@ export default function DriversPage() {
               <button
                 type="button"
                 className="drivers-cancel-button"
+                disabled={isBlocked}
                 onClick={() => {
                   setEditingId(null);
                   setForm(emptyForm);
@@ -296,9 +407,7 @@ export default function DriversPage() {
                   </td>
                   <td>
                     <div>{d.vehicle_plate || "—"}</div>
-                    <div className="drivers-sub">
-                      {d.vehicle_model || ""}
-                    </div>
+                    <div className="drivers-sub">{d.vehicle_model || ""}</div>
                   </td>
                   <td className="drivers-status">
                     {(d.status || "offline").replace("_", " ")}
@@ -307,6 +416,7 @@ export default function DriversPage() {
                     <button
                       className="drivers-action"
                       type="button"
+                      disabled={isBlocked}
                       onClick={() => handleEdit(d)}
                     >
                       Edit
@@ -314,7 +424,8 @@ export default function DriversPage() {
                     <button
                       className="drivers-action drivers-danger"
                       type="button"
-                      onClick={() => handleDelete(d.id)}
+                      disabled={isBlocked}
+                      onClick={() => requestDelete(d)}
                     >
                       Delete
                     </button>
