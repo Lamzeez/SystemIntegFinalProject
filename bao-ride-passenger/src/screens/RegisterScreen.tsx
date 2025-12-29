@@ -76,8 +76,8 @@ export default function RegisterScreen({ onSwitchToLogin }: RegisterScreenProps)
   };
 
   return (
-    <View style={{ flex: 1, padding: 16, justifyContent: "center" }}>
-      <Text style={{ fontSize: 24, fontWeight: "bold", marginBottom: 16 }}>
+    <View style={{ flex: 1, padding: 20, marginTop: 20 }}>
+      <Text style={{ fontSize: 28, fontWeight: "bold", marginBottom: 16 }}>
         Passenger Registration
       </Text>
 

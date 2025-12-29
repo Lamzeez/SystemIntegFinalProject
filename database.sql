@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS rides (
   id                   INT UNSIGNED NOT NULL AUTO_INCREMENT,
   passenger_id         INT UNSIGNED NOT NULL,
   driver_id            INT UNSIGNED DEFAULT NULL,
+  passenger_count tinyint(3) UNSIGNED NOT NULL DEFAULT 1,
+
   
   pickup_lat           DECIMAL(9,6)  NOT NULL,
   pickup_lng           DECIMAL(9,6)  NOT NULL,

@@ -7,6 +7,7 @@ import {
   Alert,
   Button,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import MapView, {
   Marker,
   MapPressEvent,
@@ -34,6 +35,9 @@ export default function HomeScreen({
   const [dropoffCoord, setDropoffCoord] = useState<LatLng | null>(null);
   const [pickupLabel, setPickupLabel] = useState<string | null>(null);
   const [dropoffLabel, setDropoffLabel] = useState<string | null>(null);
+
+  const [passengerCount, setPassengerCount] = useState<number>(1);
+  const MAX_PAX = 5;
 
   const MATI_DEFAULT_REGION: Region = {
     latitude: 6.95,
@@ -64,7 +68,6 @@ export default function HomeScreen({
     { latitude: MATI_SERVICE_BOUNDS.maxLat, longitude: MATI_SERVICE_BOUNDS.maxLng }, // NE
     { latitude: MATI_SERVICE_BOUNDS.minLat, longitude: MATI_SERVICE_BOUNDS.maxLng }, // SE
   ];
-
 
   // Check if passenger already has an active ride
   useEffect(() => {
@@ -119,7 +122,6 @@ export default function HomeScreen({
     }
   };
 
-
   const handlePoiClick = (e: PoiClickEvent) => {
     const { coordinate, name } = e.nativeEvent;
     const { latitude, longitude } = coordinate;
@@ -142,9 +144,19 @@ export default function HomeScreen({
     }
   };
 
-
-
   const canRequest = !!(pickupCoord && dropoffCoord);
+
+  useEffect(() => {
+    if (!pickupCoord || !dropoffCoord) setPassengerCount(1);
+  }, [pickupCoord, dropoffCoord]);
+
+  const incrementPassenger = () => {
+    setPassengerCount((prev) => Math.min(MAX_PAX, prev + 1));
+  };
+
+  const decrementPassenger = () => {
+    setPassengerCount((prev) => Math.max(1, prev - 1));
+  };
 
   const handleRequestRidePress = async () => {
     if (!pickupCoord || !dropoffCoord) {
@@ -155,14 +167,16 @@ export default function HomeScreen({
       return;
     }
 
-    if (!isWithinMatiServiceArea(pickupCoord) || !isWithinMatiServiceArea(dropoffCoord)) {
+    if (
+      !isWithinMatiServiceArea(pickupCoord) ||
+      !isWithinMatiServiceArea(dropoffCoord)
+    ) {
       Alert.alert(
         "Out of service area",
         "Pickup and dropoff must both be inside the Mati service rectangle."
       );
       return;
     }
-
 
     const pickupAddress = pickupLabel || "Pinned pickup";
     const dropoffAddress = dropoffLabel || "Pinned dropoff";
@@ -175,6 +189,7 @@ export default function HomeScreen({
         dropoff_lng: dropoffCoord.longitude,
         pickup_address: pickupAddress,
         dropoff_address: dropoffAddress,
+        passenger_count: passengerCount,
       });
 
       const ride = res.data.ride;
@@ -201,7 +216,6 @@ export default function HomeScreen({
     }
   };
 
-
   const pickupText = pickupLabel
     ? pickupLabel
     : pickupCoord
@@ -214,31 +228,29 @@ export default function HomeScreen({
     ? "Pinned dropoff"
     : "Not set";
 
-
-    const handleLogoutPress = () => {
-      Alert.alert("Logout", "Are you sure you want to logout?", [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Logout",
-          style: "destructive",
-          onPress: () => {
-            Alert.alert("Logout successful", "You have been logged out.", [
-              {
-                text: "OK",
-                onPress: () => {
-                  logout(); // logout AFTER the success modal
-                },
+  const handleLogoutPress = () => {
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert("Logout successful", "You have been logged out.", [
+            {
+              text: "OK",
+              onPress: () => {
+                logout(); // logout AFTER the success modal
               },
-            ]);
-          },
+            },
+          ]);
         },
-      ]);
-    };
-
+      },
+    ]);
+  };
 
   return (
-    <View style={{ flex: 1}}>
-      <View style={{ padding: 20, marginTop: 20}}>
+    <View style={{ flex: 1 }}>
+      <View style={{ padding: 20, marginTop: 20 }}>
         <Text style={styles.helloText}>Hello, {user?.name}</Text>
 
         <Text style={{ marginTop: 8, marginBottom: 8 }}>
@@ -284,14 +296,39 @@ export default function HomeScreen({
         <Text style={{ marginTop: 10 }}>Pickup: {pickupText}</Text>
         <Text>Dropoff: {dropoffText}</Text>
 
+        {canRequest && (
+          <View style={styles.paxRow}>
+            <Text style={styles.paxLabel}>Passengers</Text>
+
+            <View style={styles.paxControls}>
+              <TouchableOpacity
+                onPress={decrementPassenger}
+                activeOpacity={0.7}
+                accessibilityLabel="Decrease passenger count"
+              >
+                <Ionicons name="remove-circle" size={32} color="#333" />
+              </TouchableOpacity>
+
+              <Text style={styles.paxCountText}>{passengerCount}</Text>
+
+              <TouchableOpacity
+                onPress={incrementPassenger}
+                activeOpacity={0.7}
+                accessibilityLabel="Increase passenger count"
+              >
+                <Ionicons name="add-circle" size={32} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.paxHint}>(max {MAX_PAX})</Text>
+          </View>
+        )}
+
         <View style={{ marginTop: 16 }}>
           <TouchableOpacity
             onPress={handleRequestRidePress}
-            disabled={!canRequest}
-            style={[
-              styles.requestButton,
-              { backgroundColor: canRequest ? "#2E7D32" : "#BDBDBD" },
-            ]}
+            activeOpacity={0.7}
+            style={styles.requestButton}
           >
             <Text style={styles.requestButtonText}>REQUEST RIDE</Text>
           </TouchableOpacity>
@@ -311,7 +348,6 @@ export default function HomeScreen({
             <Text style={styles.requestButtonText}>LOGOUT</Text>
           </TouchableOpacity>
         </View>
-
       </View>
 
       <MapView
@@ -320,18 +356,27 @@ export default function HomeScreen({
         onPress={handleMapPress}
         onPoiClick={handlePoiClick}
       >
-        <Polygon coordinates={MATI_SERVICE_RECT} />
-        {pickupCoord && (
+        <Polygon
+          coordinates={MATI_SERVICE_RECT}
+          strokeWidth={2}
+          strokeColor="rgba(0, 102, 255, 0.8)"
+          fillColor="rgba(0, 102, 255, 0.15)"
+        />
+
+        {!!pickupCoord && (
           <Marker
             coordinate={pickupCoord}
-            title={pickupLabel || "Pickup"}
+            title="Pickup"
+            description={pickupLabel || "Pinned pickup"}
             pinColor="green"
           />
         )}
-        {dropoffCoord && (
+
+        {!!dropoffCoord && (
           <Marker
             coordinate={dropoffCoord}
-            title={dropoffLabel || "Dropoff"}
+            title="Dropoff"
+            description={dropoffLabel || "Pinned dropoff"}
             pinColor="red"
           />
         )}
@@ -341,43 +386,75 @@ export default function HomeScreen({
 }
 
 const styles = StyleSheet.create({
-  helloText: {
-    fontSize: 24,
-    fontWeight: "bold",
-  },
+  helloText: { fontSize: 18, fontWeight: "600" },
+
   toggleRow: {
     flexDirection: "row",
-    marginTop: 8,
-    marginBottom: 4,
+    gap: 10,
   },
+
   toggleButton: {
     flex: 1,
     paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "#1976D2",
-    backgroundColor: "white",
+    borderRadius: 4,
+    backgroundColor: "#e6e6e6",
     alignItems: "center",
-    justifyContent: "center",
   },
+
   toggleButtonActive: {
-    backgroundColor: "#1976D2",
+    backgroundColor: "#001F54",
   },
+
   toggleText: {
-    fontSize: 13,
+    color: "#333",
     fontWeight: "600",
-    color: "#1976D2",
   },
+
   toggleTextActive: {
     color: "white",
   },
+
   requestButton: {
     paddingVertical: 12,
     borderRadius: 4,
     alignItems: "center",
+    backgroundColor: "#001F54",
   },
+
   requestButtonText: {
     color: "white",
-    fontWeight: "bold",
-    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  paxRow: {
+    marginTop: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e5e5e5",
+    backgroundColor: "#fff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  paxLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  paxControls: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  paxCountText: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginHorizontal: 10,
+    minWidth: 22,
+    textAlign: "center",
+  },
+  paxHint: {
+    fontSize: 12,
+    color: "#666",
   },
 });

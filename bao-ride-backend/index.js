@@ -13,6 +13,50 @@ const server = http.createServer(app);
 
 const axios = require("axios");
 
+// ---------------- Passenger count support (1..5) ----------------
+function clampInt(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  if (i < min) return min;
+  if (i > max) return max;
+  return i;
+}
+
+const __columnCache = new Map(); // key: `${table}.${column}` => boolean
+async function tableHasColumn(tableName, columnName) {
+  const key = `${tableName}.${columnName}`;
+  if (__columnCache.has(key)) return __columnCache.get(key);
+
+  const [rows] = await pool.query(
+    `SELECT 1 AS ok
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?
+     LIMIT 1`,
+    [tableName, columnName]
+  );
+
+  const exists = !!rows.length;
+  __columnCache.set(key, exists);
+  return exists;
+}
+
+async function ensurePassengerCountColumn() {
+  try {
+    const exists = await tableHasColumn("rides", "passenger_count");
+    if (exists) return;
+
+    // Add a default passenger_count column so fare multiplication is consistent
+    await pool.query(`ALTER TABLE rides ADD COLUMN passenger_count INT NOT NULL DEFAULT 1`);
+    __columnCache.set("rides.passenger_count", true);
+    console.log("✅ Added rides.passenger_count column (default 1)");
+  } catch (e) {
+    console.warn("⚠️ Could not ensure rides.passenger_count column:", e?.message || e);
+  }
+}
+
 // Haversine as fallback
 function haversineDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth radius km
@@ -53,6 +97,26 @@ async function getRouteDistanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng) 
   return haversineDistanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng);
 }
 
+async function getRouteMetricsKmMin(pickupLat, pickupLng, dropoffLat, dropoffLng) {
+  try {
+    const url = `http://router.project-osrm.org/route/v1/driving/${pickupLng},${pickupLat};${dropoffLng},${dropoffLat}?overview=false`;
+    const response = await axios.get(url);
+    const route = response.data?.routes?.[0];
+    if (!route) throw new Error("No routes returned");
+
+    const distanceKm = route.distance / 1000;
+    const durationMin = route.duration / 60;
+    return { distanceKm, durationMin };
+  } catch (e) {
+    console.error("OSRM route metrics failed, fallback:", e.message || e);
+    // fallback: assume ~20kph average
+    const fallbackDistanceKm = haversineDistance(pickupLat, pickupLng, dropoffLat, dropoffLng);
+    const durationMin = (fallbackDistanceKm / 20) * 60;
+    return { distanceKm: fallbackDistanceKm, durationMin };
+  }
+}
+
+
 // ONE single fare rule used everywhere
 function computeFare(distanceKm) {
   const baseFare = 15; // up to 5 km
@@ -65,6 +129,39 @@ function computeFare(distanceKm) {
   const extraUnits = Math.ceil(extraKm); // each started km
   return baseFare + extraUnits * extraPerKm;
 }
+
+async function computeSurgeMultiplier() {
+  // very simple surge logic (easy + stable)
+  // ratio = active demand / online supply
+  const [[activeRows]] = await pool.query(
+    `SELECT COUNT(*) AS active
+     FROM rides
+     WHERE status IN ('requested','assigned','in_progress')`
+  );
+  const [[onlineRows]] = await pool.query(
+    `SELECT COUNT(*) AS online
+     FROM drivers
+     WHERE status = 'online'`
+  );
+
+  const active = Number(activeRows?.active || 0);
+  const online = Math.max(1, Number(onlineRows?.online || 0));
+  const ratio = active / online;
+
+  // time-based boost (rush hours)
+  const hour = new Date().getHours();
+  const isRush = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19);
+
+  let mult = 1.0;
+  if (ratio >= 2.0) mult = 2.0;
+  else if (ratio >= 1.5) mult = 1.5;
+  else if (ratio >= 1.2) mult = 1.2;
+
+  if (isRush) mult = Math.max(mult, 1.2);
+
+  return mult;
+}
+
 
 app.use(cors());
 app.use(express.json());
@@ -449,6 +546,13 @@ app.get(
   requireDriver,
   async (req, res) => {
     try {
+      // ✅ Only ONLINE drivers are allowed to view the available rides list.
+      // If a driver is OFFLINE/ON_TRIP, return an empty list.
+      const driver = await getDriverForUser(req.user.id);
+      if (driver.status !== 'online') {
+        return res.json({ rides: [] });
+      }
+
       const [rows] = await pool.query(
         `SELECT r.*,
                 u.name  AS passenger_name,
@@ -621,7 +725,14 @@ app.post(
       }
 
       // 3) Compute final fare using the SAME helper
-      const finalFare = computeFare(finalDistanceKm);
+      const passengerCount = Math.max(
+        1,
+        Math.min(5, parseInt(String(ride.passenger_count ?? 1), 10) || 1)
+      );
+
+      const baseFinalFare = computeFare(finalDistanceKm);
+      const finalFare = baseFinalFare * passengerCount;
+
 
       // 4) Update ride as completed
       const [result] = await pool.query(
@@ -647,9 +758,10 @@ app.post(
         fare: finalFare, // for any client still using 'fare'
         passengerId: ride.passenger_id,
         driverId: ride.driver_id,
+        passenger_count: passengerCount,
       });
 
-      res.json({ message: "Ride completed", final_fare: finalFare });
+      res.json({ message: "Ride completed", fare: finalFare, final_fare: finalFare, passenger_count: passengerCount });
     } catch (err) {
       console.error("Error completing ride", err);
       res.status(500).json({ error: "Failed to complete ride" });
@@ -829,6 +941,8 @@ app.post(
         dropoff_address,
       } = req.body;
 
+      const passengerCount = clampInt(req.body.passenger_count ?? req.body.passengerCount, 1, 5, 1);
+
       if (
         pickup_lat == null ||
         pickup_lng == null ||
@@ -845,40 +959,68 @@ app.post(
       const dropoffLat = Number(dropoff_lat);
       const dropoffLng = Number(dropoff_lng);
 
-      // 1) Get route distance
-      const distanceKm = await getRouteDistanceKm(
-        pickupLat,
-        pickupLng,
-        dropoffLat,
-        dropoffLng
+      const { distanceKm, durationMin } = await getRouteMetricsKmMin(
+        pickupLat, pickupLng, dropoffLat, dropoffLng
       );
 
-      // 2) Compute fare ONCE
-      const estimatedFare = computeFare(distanceKm);
+      const surgeMultiplier = await computeSurgeMultiplier();
+      const baseEstimatedFare = computeFare(distanceKm, surgeMultiplier);
+      const estimatedFare = baseEstimatedFare * passengerCount;
 
-      // 3) Create ride in DB
-      const [result] = await pool.query(
-        `INSERT INTO rides
-         (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
-          pickup_address, dropoff_address, status,
-          estimated_distance_km, estimated_fare)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?)`,
-        [
-          passengerId,
-          pickupLat,
-          pickupLng,
-          dropoffLat,
-          dropoffLng,
-          pickup_address || null,
-          dropoff_address || null,
-          distanceKm,
-          estimatedFare,
-        ]
-      );
+      const includePassengerCount = await tableHasColumn("rides", "passenger_count");
+
+      let result;
+      if (includePassengerCount) {
+        const [r] = await pool.query(
+          `INSERT INTO rides
+          (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+            pickup_address, dropoff_address, status,
+            estimated_distance_km, estimated_duration_min, estimated_fare, surge_multiplier,
+            passenger_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?, ?)`,
+          [
+            passengerId,
+            pickupLat,
+            pickupLng,
+            dropoffLat,
+            dropoffLng,
+            pickup_address || null,
+            dropoff_address || null,
+            distanceKm,
+            durationMin,
+            estimatedFare,
+            surgeMultiplier,
+            passengerCount,
+          ]
+        );
+        result = r;
+      } else {
+        const [r] = await pool.query(
+          `INSERT INTO rides
+          (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+            pickup_address, dropoff_address, status,
+            estimated_distance_km, estimated_duration_min, estimated_fare, surge_multiplier)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)`,
+          [
+            passengerId,
+            pickupLat,
+            pickupLng,
+            dropoffLat,
+            dropoffLng,
+            pickup_address || null,
+            dropoff_address || null,
+            distanceKm,
+            durationMin,
+            estimatedFare,
+            surgeMultiplier,
+          ]
+        );
+        result = r;
+      }
 
       const rideId = result.insertId;
 
-      // 4) Load ride including passenger_name
+      // Load ride including passenger_name
       const [rows] = await pool.query(
         `SELECT r.*,
                 u.name  AS passenger_name,
@@ -890,15 +1032,18 @@ app.post(
       );
 
       const newRide = rows[0];
+      if (newRide && newRide.passenger_count == null) newRide.passenger_count = passengerCount;
 
-      // 5) Notify drivers & clients
+      // Notify drivers & clients
       await findAndNotifyDrivers(newRide);
       io.emit("ride:status:update", {
         rideId: newRide.id,
         status: newRide.status,
         estimated_distance_km: newRide.estimated_distance_km,
         estimated_fare: newRide.estimated_fare,
+        passenger_count: newRide.passenger_count,
         passengerId: newRide.passenger_id,
+        passenger_count: passengerCount,
       });
 
       res.json({ ride: newRide });
@@ -908,6 +1053,61 @@ app.post(
     }
   }
 );
+
+
+app.get("/drivers/:id/location", authenticateToken, async (req, res) => {
+  try {
+    const driverId = Number(req.params.id);
+    const [rows] = await pool.query(
+      "SELECT lat, lng, updated_at FROM driver_locations WHERE driver_id = ?",
+      [driverId]
+    );
+    if (!rows.length) return res.json({ lat: null, lng: null });
+    return res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load driver location" });
+  }
+});
+
+app.get("/driver/earnings/summary", authenticateToken, requireDriver, async (req, res) => {
+  try {
+    const driverUserId = req.user.id;
+
+    const [[driverRow]] = await pool.query("SELECT id FROM drivers WHERE user_id = ?", [driverUserId]);
+    const driverId = driverRow?.id;
+    if (!driverId) return res.status(404).json({ error: "Driver not found" });
+
+    const [[totalRow]] = await pool.query(
+      `SELECT COALESCE(SUM(fare),0) AS total, COUNT(*) AS completed_count
+       FROM rides WHERE driver_id = ? AND status = 'completed'`,
+      [driverId]
+    );
+
+    const [[todayRow]] = await pool.query(
+      `SELECT COALESCE(SUM(fare),0) AS today
+       FROM rides WHERE driver_id = ? AND status = 'completed' AND DATE(updated_at) = CURDATE()`,
+      [driverId]
+    );
+
+    const [[weekRow]] = await pool.query(
+      `SELECT COALESCE(SUM(fare),0) AS week
+       FROM rides WHERE driver_id = ? AND status = 'completed' AND YEARWEEK(updated_at, 1) = YEARWEEK(CURDATE(), 1)`,
+      [driverId]
+    );
+
+    res.json({
+      today: Number(todayRow.today),
+      week: Number(weekRow.week),
+      total: Number(totalRow.total),
+      completed_count: Number(totalRow.completed_count),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load earnings summary" });
+  }
+});
+
 
 // Passenger cancels a ride
 app.post('/rides/:id/cancel', authenticateToken, async (req, res) => {
@@ -1116,11 +1316,22 @@ io.on('connection', (socket) => {
     );
     const driverName = driverUser ? driverUser.name : null;
 
+    // ✅ Make sure passenger_count is included in the WS status update
+    const [[rideRow]] = await pool.query(
+      `SELECT passenger_count FROM rides WHERE id = ? LIMIT 1`,
+      [rideId]
+    );
+    const passengerCount = Math.max(
+      1,
+      Math.min(5, parseInt(String(rideRow?.passenger_count ?? 1), 10) || 1)
+    );
+
     io.emit("ride:status:update", {
       rideId,
       status: "assigned",
       driverId,
       driver_name: driverName, // ⭐ ADDED
+      passenger_count: passengerCount,
     });
 
     socket.emit("ride:accept:success", { rideId });
@@ -1138,11 +1349,22 @@ io.on('connection', (socket) => {
 
     if (result.affectedRows === 0) return;
 
-    io.emit("ride:status:update", {
-      rideId,
-      status: "in_progress",
-      driverId,
-    });
+    // ✅ Include passenger_count in the WS status update
+const [[rideRow]] = await pool.query(
+  `SELECT passenger_count FROM rides WHERE id = ? LIMIT 1`,
+  [rideId]
+);
+const passengerCount = Math.max(
+  1,
+  Math.min(5, parseInt(String(rideRow?.passenger_count ?? 1), 10) || 1)
+);
+
+io.emit("ride:status:update", {
+  rideId,
+  status: "in_progress",
+  driverId,
+  passenger_count: passengerCount,
+});
   });
 
   socket.on("ride:complete", async ({ rideId }) => {
@@ -1165,7 +1387,14 @@ io.on('connection', (socket) => {
       Number(ride.dropoff_lng)
     );
 
-    const fare = calculateFareFromDistance(distance);
+    const passengerCount = Math.max(
+      1,
+      Math.min(5, parseInt(String(ride.passenger_count ?? 1), 10) || 1)
+    );
+
+    const baseFare = calculateFareFromDistance(distance);
+    const fare = baseFare * passengerCount;
+
 
     await pool.query(
       `UPDATE rides
@@ -1186,6 +1415,7 @@ io.on('connection', (socket) => {
       fare,
       final_fare: fare,
       final_distance_km: distance,
+      passenger_count: passengerCount,
     });
   });
 });

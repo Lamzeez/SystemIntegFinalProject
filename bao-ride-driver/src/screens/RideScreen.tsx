@@ -1,9 +1,15 @@
 // bao-ride-driver/src/screens/RideScreen.tsx (DRIVER VERSION)
-import React, { useEffect, useState, useRef  } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { View, Text, TouchableOpacity, Alert } from "react-native";
 import { api } from "../api";
 import { getSocket } from "../socket";
 import MapView, { Marker, Polyline, Region } from "react-native-maps";
+import {
+  startBackgroundLocation,
+  stopBackgroundLocation,
+  startForegroundWatch,
+  ensureLocationPermissions,
+} from "../location/locationTasks";
 
 type Ride = {
   id: number;
@@ -12,15 +18,18 @@ type Ride = {
   pickup_lng?: number | string;
   dropoff_lat?: number | string;
   dropoff_lng?: number | string;
-  estimated_distance_km?: number | string;
-  distance_km?: number | string;
-  final_distance_km?: number | string;
-  estimated_fare?: number;
-  fare?: number;
-  final_fare?: number;
-  passenger_name?: string;
   pickup_address?: string;
   dropoff_address?: string;
+  passenger_name?: string;
+  passenger_phone?: string;
+  passenger_count?: number;
+  estimated_distance_km?: number | string;
+  estimated_duration_min?: number | string;
+  distance_km?: number | string;
+  estimated_fare?: number;
+  fare?: number;
+  surge_multiplier?: number;
+  driver_id?: number | null;
   [key: string]: any;
 };
 
@@ -29,25 +38,30 @@ type Coord = { latitude: number; longitude: number };
 export default function RideScreen({
   rideId,
   initialRide,
-  onEndRide,
   onBack,
+  onEndRide,
 }: {
   rideId: number;
   initialRide?: Ride | null;
-  onEndRide: () => void;
   onBack: () => void;
+  onEndRide: () => void;
 }) {
   const [ride, setRide] = useState<Ride | null>(initialRide ?? null);
   const [statusText, setStatusText] = useState<string>(
     initialRide?.status || "requested"
   );
 
-  const acceptedShownRef = useRef(false);
-
   const [routeCoords, setRouteCoords] = useState<Coord[]>([]);
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
 
-  // Load ride details if not provided by AppNavigator
+  const [myCoord, setMyCoord] = useState<Coord | null>(null);
+  const [followMe, setFollowMe] = useState<boolean>(true);
+
+  const mapRef = useRef<MapView | null>(null);
+  const acceptedShownRef = useRef(false);
+  const lastCameraMoveAtRef = useRef(0);
+  const locSubRef = useRef<any>(null);
+
   useEffect(() => {
     if (initialRide) return;
 
@@ -59,74 +73,38 @@ export default function RideScreen({
           setStatusText(res.data.ride.status);
         }
       } catch (e) {
-        console.log("Driver failed to load ride", e);
+        console.log("Failed to load ride", e);
       }
     };
 
     load();
   }, [initialRide]);
 
-  // Listen for passenger cancelling / ride completing
   useEffect(() => {
     const socket = getSocket();
 
     const handleUpdate = (payload: any) => {
       if (payload.rideId !== rideId) return;
 
-      setRide((prev) => {
-        const existing = prev || ({} as Ride);
+      setRide((prev: any) => ({
+        ...prev,
+        status: payload.status ?? prev?.status,
+        fare: payload.fare ?? prev?.fare,
+        distance_km: payload.distanceKm ?? prev?.distance_km,
+        estimated_duration_min:
+          payload.estimated_duration_min ?? prev?.estimated_duration_min,
+        surge_multiplier: payload.surge_multiplier ?? prev?.surge_multiplier,
+        passenger_count: payload.passenger_count ?? prev?.passenger_count,
+      }));
 
-        const updated: Ride = {
-          ...existing,
-          status: payload.status ?? existing.status,
-          // prefer final_fare, then fare, then keep previous
-          fare:
-            payload.fare ??
-            payload.final_fare ??
-            existing.fare ??
-            existing.final_fare,
-          final_fare:
-            payload.final_fare ??
-            payload.fare ??
-            existing.final_fare ??
-            existing.fare,
-          distance_km:
-            payload.distanceKm ??
-            payload.final_distance_km ??
-            existing.distance_km ??
-            existing.final_distance_km,
-          final_distance_km:
-            payload.final_distance_km ??
-            payload.distanceKm ??
-            existing.final_distance_km ??
-            existing.distance_km,
-        };
-
-        return updated;
-      });
-
-      setStatusText(payload.status);
-      if (payload.status === "assigned" && !acceptedShownRef.current) {
-        acceptedShownRef.current = true;
-        Alert.alert("Ride accepted", "You have accepted this ride.", [{ text: "OK" }]);
-      }
-
-
-      if (payload.status === "completed") {
-        const finalFare =
-          payload.final_fare ??
-          payload.fare ??
-          ride?.final_fare ??
-          ride?.fare ??
-          ride?.estimated_fare ??
-          "—";
-
-        Alert.alert("Ride completed", `Fare: ₱${finalFare}`);
-        onEndRide();
-      }
+      if (payload.status) setStatusText(payload.status);
 
       if (payload.status === "cancelled") {
-        Alert.alert("Ride cancelled", "Passenger cancelled this ride.");
+        Alert.alert("Ride Cancelled", "This ride was cancelled.");
+        onEndRide();
+      }
+      if (payload.status === "completed") {
+        Alert.alert("Ride Completed", `Fare: ₱${payload.fare ?? "—"}`);
         onEndRide();
       }
     };
@@ -135,9 +113,8 @@ export default function RideScreen({
     return () => {
       socket.off("ride:status:update", handleUpdate);
     };
-  }, [rideId, onEndRide, ride?.fare, ride?.final_fare, ride?.estimated_fare]);
+  }, [rideId, onEndRide]);
 
-  // Load OSRM route polyline when we have pickup/dropoff coordinates
   useEffect(() => {
     if (!ride) return;
 
@@ -146,12 +123,7 @@ export default function RideScreen({
     const lat2 = Number(ride.dropoff_lat);
     const lng2 = Number(ride.dropoff_lng);
 
-    if (
-      !isFinite(lat1) ||
-      !isFinite(lng1) ||
-      !isFinite(lat2) ||
-      !isFinite(lng2)
-    ) {
+    if (!isFinite(lat1) || !isFinite(lng1) || !isFinite(lat2) || !isFinite(lng2)) {
       return;
     }
 
@@ -162,47 +134,139 @@ export default function RideScreen({
         const data = await res.json();
 
         if (data.code !== "Ok" || !data.routes || !data.routes.length) {
-          console.log("OSRM route error (driver):", data);
+          console.log("OSRM route error:", data);
           return;
         }
 
-        const coords: Coord[] =
-          data.routes[0].geometry.coordinates.map(
-            (pair: [number, number]): Coord => ({
-              latitude: pair[1],
-              longitude: pair[0],
-            })
-          );
+        const coords: Coord[] = data.routes[0].geometry.coordinates.map(
+          (pair: [number, number]): Coord => ({
+            latitude: pair[1],
+            longitude: pair[0],
+          })
+        );
 
         setRouteCoords(coords);
 
-        // Center map between pickup and dropoff
         const midLat = (lat1 + lat2) / 2;
         const midLng = (lng1 + lng2) / 2;
         const latDiff = Math.abs(lat1 - lat2) || 0.01;
         const lngDiff = Math.abs(lng1 - lng2) || 0.01;
 
-        setMapRegion({
+        const region: Region = {
           latitude: midLat,
           longitude: midLng,
           latitudeDelta: latDiff * 1.8,
           longitudeDelta: lngDiff * 1.8,
-        });
+        };
+
+        setMapRegion(region);
+        mapRef.current?.animateToRegion(region, 200);
       } catch (err) {
-        console.log("Driver failed to load route polyline", err);
+        console.log("Failed to load route polyline", err);
       }
     };
 
     fetchRoute();
   }, [ride?.pickup_lat, ride?.pickup_lng, ride?.dropoff_lat, ride?.dropoff_lng]);
 
+  useEffect(() => {
+    const run = async () => {
+      if (!ride) return;
+
+      const isActive = ride.status === "assigned" || ride.status === "in_progress";
+      if (!isActive) return;
+
+      let driverId = Number(ride.driver_id);
+      if (!Number.isFinite(driverId)) {
+        try {
+          const prof = await api.get("/driver/profile");
+          driverId = Number(prof.data?.driver?.id);
+        } catch {}
+      }
+
+      if (!Number.isFinite(driverId)) {
+        console.log("No driverId available; skipping GPS emit.");
+        return;
+      }
+
+      const ok = await ensureLocationPermissions();
+      if (!ok) {
+        Alert.alert(
+          "Location needed",
+          "Please allow location access so passengers can track you."
+        );
+        return;
+      }
+
+      if (!locSubRef.current) {
+        locSubRef.current = await startForegroundWatch(driverId, (lat, lng) => {
+          setMyCoord({ latitude: lat, longitude: lng });
+        });
+      }
+
+      try {
+        await startBackgroundLocation(driverId);
+      } catch (e) {
+        console.log("Failed to start background location", e);
+      }
+    };
+
+    run();
+
+    return () => {
+      if (locSubRef.current) {
+        try {
+          locSubRef.current.remove?.();
+        } catch {}
+        locSubRef.current = null;
+      }
+    };
+  }, [ride?.status, ride?.driver_id]);
+
+  useEffect(() => {
+    const stopIfEnded = async () => {
+      if (!ride) {
+        await stopBackgroundLocation();
+        return;
+      }
+
+      if (ride.status === "completed" || ride.status === "cancelled") {
+        await stopBackgroundLocation();
+      }
+    };
+
+    stopIfEnded();
+  }, [ride?.status, ride]);
+
+  useEffect(() => {
+    if (!followMe) return;
+    if (!myCoord) return;
+
+    const now = Date.now();
+    if (now - lastCameraMoveAtRef.current < 900) return;
+    lastCameraMoveAtRef.current = now;
+
+    mapRef.current?.animateToRegion(
+      {
+        latitude: myCoord.latitude,
+        longitude: myCoord.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      },
+      250
+    );
+  }, [myCoord, followMe]);
+
   const acceptRide = async () => {
     try {
       await api.post(`/driver/rides/${rideId}/accept`);
-      setRide((prev) => (prev ? { ...prev, status: "assigned" } : prev));
-      setStatusText("assigned");
 
-      // ✅ NEW: success modal (same style as register/login)
+      const res = await api.get("/driver/rides/current");
+      if (res.data.ride) {
+        setRide(res.data.ride);
+        setStatusText(res.data.ride.status);
+      }
+
       if (!acceptedShownRef.current) {
         acceptedShownRef.current = true;
         Alert.alert("Ride accepted", "You have accepted this ride.", [{ text: "OK" }]);
@@ -213,69 +277,35 @@ export default function RideScreen({
     }
   };
 
-
   const startRide = async () => {
     try {
       await api.post(`/driver/rides/${rideId}/start`);
-      setRide((prev) =>
-        prev ? { ...prev, status: "in_progress" } : prev
-      );
+      setRide((prev) => (prev ? { ...prev, status: "in_progress" } : prev));
       setStatusText("in_progress");
     } catch (e: any) {
       console.log("Start failed", e.response?.data || e);
-      Alert.alert("Error", "Failed to start ride.");
+      Alert.alert("Error", e.response?.data?.error || "Failed to start ride.");
     }
   };
 
   const completeRide = async () => {
     try {
       const res = await api.post(`/driver/rides/${rideId}/complete`);
-      const finalFare =
-        res.data?.final_fare ?? res.data?.fare ?? ride?.final_fare ?? ride?.fare;
-
-      setRide((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: "completed",
-              final_fare: finalFare ?? prev.final_fare,
-              fare: finalFare ?? prev.fare,
-            }
-          : prev
-      );
-
-      Alert.alert("Ride completed", `Fare: ₱${finalFare ?? "—"}`);
+      const fare = res.data?.fare ?? res.data?.ride?.fare;
+      Alert.alert("Ride Completed", fare != null ? `Fare: ₱${fare}` : "Ride completed.");
+      setRide((prev) => (prev ? { ...prev, status: "completed", fare } : prev));
+      setStatusText("completed");
+      await stopBackgroundLocation();
       onEndRide();
     } catch (e: any) {
       console.log("Complete failed", e.response?.data || e);
-      Alert.alert("Error", "Failed to complete ride.");
+      Alert.alert("Error", e.response?.data?.error || "Failed to complete ride.");
     }
   };
 
   if (!ride) {
     return <Text style={{ padding: 20 }}>Loading ride...</Text>;
   }
-
-  // distance display: prefer final_distance, then distance, then estimated
-  const displayDistance = () => {
-    if (ride.final_distance_km != null) {
-      return `${Number(ride.final_distance_km).toFixed(1)} km`;
-    }
-    if (ride.distance_km != null) {
-      return `${Number(ride.distance_km).toFixed(1)} km`;
-    }
-    if (ride.estimated_distance_km != null) {
-      return `${Number(ride.estimated_distance_km).toFixed(1)} km`;
-    }
-    return "—";
-  };
-
-  // total fare: prefer final_fare, then fare, then estimated_fare
-  const totalFare =
-    ride.final_fare ??
-    ride.fare ??
-    ride.estimated_fare ??
-    null;
 
   const pickupLat = Number(ride.pickup_lat);
   const pickupLng = Number(ride.pickup_lng);
@@ -285,58 +315,69 @@ export default function RideScreen({
   const hasPickup = isFinite(pickupLat) && isFinite(pickupLng);
   const hasDropoff = isFinite(dropoffLat) && isFinite(dropoffLng);
 
-  const initialRegion: Region = mapRegion || {
-    latitude: hasPickup ? pickupLat : 6.95,
-    longitude: hasPickup ? pickupLng : 126.2333,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
+  const displayStatus = () => statusText || ride.status || "requested";
+
+  const displayDistance = () => {
+    if (ride.distance_km != null) return `${Number(ride.distance_km).toFixed(1)} km`;
+    if (ride.estimated_distance_km != null)
+      return `${Number(ride.estimated_distance_km).toFixed(1)} km`;
+    return "—";
   };
 
-  const statusLabels: Record<string, string> = {
-    requested: "Requested",
-    assigned: "Assigned",
-    in_progress: "In progress...",
-    completed: "Completed",
-    cancelled: "Cancelled",
+  const displayEta = () => {
+    const v = ride.estimated_duration_min;
+    if (v == null) return "—";
+    const n = Number(v);
+    if (!isFinite(n)) return "—";
+    return `${Math.round(n)} min`;
   };
 
-  function displayStatus() {
-    return statusLabels[statusText] ?? statusText;
-  }
-
+  const totalFare = ride.fare ?? ride.estimated_fare ?? null;
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Map with route line */}
-      <MapView
-        style={{ flex: 1 }}
-        initialRegion={initialRegion}
-        region={mapRegion || initialRegion}
-      >
-        {hasPickup && (
-          <Marker
-            coordinate={{ latitude: pickupLat, longitude: pickupLng }}
-            title={ride.pickup_address || "Pickup"}
-            pinColor="green"
-          />
-        )}
-        {hasDropoff && (
-          <Marker
-            coordinate={{ latitude: dropoffLat, longitude: dropoffLng }}
-            title={ride.dropoff_address || "Dropoff"}
-            pinColor="red"
-          />
-        )}
-        {routeCoords.length > 1 && (
-          <Polyline
-            coordinates={routeCoords}
-            strokeColor="green"
-            strokeWidth={4}
-          />
-        )}
-      </MapView>
+      <View style={{ flex: 1 }}>
+        <MapView
+          ref={(r) => {
+            mapRef.current = r;
+          }}
+          style={{ flex: 1 }}
+          initialRegion={
+            mapRegion ??
+            (hasPickup
+              ? {
+                  latitude: pickupLat,
+                  longitude: pickupLng,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05,
+                }
+              : undefined)
+          }
+          onRegionChangeComplete={(r) => setMapRegion(r)}
+        >
+          {hasPickup && (
+            <Marker
+              coordinate={{ latitude: pickupLat, longitude: pickupLng }}
+              title={ride.pickup_address || "Pickup"}
+              pinColor="green"
+            />
+          )}
+          {hasDropoff && (
+            <Marker
+              coordinate={{ latitude: dropoffLat, longitude: dropoffLng }}
+              title={ride.dropoff_address || "Dropoff"}
+              pinColor="red"
+            />
+          )}
 
-      {/* Info + actions */}
+          {myCoord && <Marker coordinate={myCoord} title="You" />}
+
+          {routeCoords.length > 1 && (
+            <Polyline coordinates={routeCoords} strokeColor="green" strokeWidth={4} />
+          )}
+        </MapView>
+      </View>
+
       <View style={{ padding: 16 }}>
         <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 4 }}>
           Ride #{rideId}
@@ -346,11 +387,36 @@ export default function RideScreen({
         <Text>Dropoff: {ride.dropoff_address}</Text>
         <Text>Status: {displayStatus()}</Text>
         <Text>Distance: {displayDistance()}</Text>
-        <Text>
-          Total fare: {totalFare != null ? `₱${totalFare}` : "₱--"}
-        </Text>
+        <Text>ETA: {displayEta()}</Text>
+        <Text>Passengers: {ride.passenger_count ?? 1}</Text>
+        <Text>Total fare: {totalFare != null ? `₱${totalFare}` : "₱--"}</Text>
 
-        {/* Actions */}
+        {ride.surge_multiplier != null && Number(ride.surge_multiplier) > 1 && (
+          <Text style={{ color: "#B71C1C", fontWeight: "600" }}>
+            Surge: ×{Number(ride.surge_multiplier).toFixed(1)}
+          </Text>
+        )}
+
+        <View style={{ height: 10 }} />
+
+        {(ride.status === "assigned" || ride.status === "in_progress") && (
+          <TouchableOpacity
+            onPress={() => setFollowMe((v) => !v)}
+            activeOpacity={0.7}
+            style={{
+              paddingVertical: 10,
+              borderRadius: 6,
+              alignItems: "center",
+              backgroundColor: "#EEEEEE",
+              marginBottom: 10,
+            }}
+          >
+            <Text style={{ fontWeight: "600" }}>
+              {followMe ? "STOP FOLLOWING ME" : "FOLLOW ME"}
+            </Text>
+          </TouchableOpacity>
+        )}
+
         <View style={{ marginTop: 12, marginBottom: 30 }}>
           {statusText === "requested" && (
             <TouchableOpacity
@@ -360,7 +426,7 @@ export default function RideScreen({
                 paddingVertical: 12,
                 borderRadius: 4,
                 alignItems: "center",
-                backgroundColor: "#2E7D32", // primary action (green-ish)
+                backgroundColor: "#2E7D32",
                 marginBottom: 8,
               }}
             >
@@ -406,7 +472,6 @@ export default function RideScreen({
           )}
         </View>
 
-        {/* Back to Home: only before a ride is accepted */}
         {statusText === "requested" && (
           <View style={{ marginBottom: 40 }}>
             <TouchableOpacity
@@ -416,7 +481,7 @@ export default function RideScreen({
                 paddingVertical: 12,
                 borderRadius: 4,
                 alignItems: "center",
-                backgroundColor: "#1976D2", // keep it blue-ish, simple primary
+                backgroundColor: "#1976D2",
               }}
             >
               <Text style={{ color: "white", fontWeight: "bold", fontSize: 16 }}>
@@ -425,7 +490,6 @@ export default function RideScreen({
             </TouchableOpacity>
           </View>
         )}
-
       </View>
     </View>
   );
