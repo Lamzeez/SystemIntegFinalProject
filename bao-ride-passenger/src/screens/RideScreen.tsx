@@ -20,7 +20,6 @@ type Ride = {
   passenger_name?: string;
   driver_name?: string;
   driver_id?: number | null;
-  surge_multiplier?: number;
   passenger_count?: number;
   [key: string]: any;
 };
@@ -111,7 +110,6 @@ export default function RideScreen({
         driver_id: payload.driverId ?? payload.driver_id ?? prev?.driver_id,
         estimated_duration_min:
           payload.estimated_duration_min ?? prev?.estimated_duration_min,
-        surge_multiplier: payload.surge_multiplier ?? prev?.surge_multiplier,
         passenger_count: payload.passenger_count ?? prev?.passenger_count,
       }));
 
@@ -317,12 +315,6 @@ export default function RideScreen({
         <Text>ETA: {displayEta()}</Text>
         {ride.passenger_count != null && <Text>Passengers: {ride.passenger_count}</Text>}
         <Text>Fare: {displayFare()}</Text>
-
-        {ride.surge_multiplier != null && Number(ride.surge_multiplier) > 1 && (
-          <Text style={{ color: "#B71C1C", fontWeight: "600" }}>
-            Surge x{Number(ride.surge_multiplier).toFixed(1)}
-          </Text>
-        )}
 
         <View style={{ marginTop: 10, flexDirection: "row", gap: 10 }}>
           {canShowFollowButton && (

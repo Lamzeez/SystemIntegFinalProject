@@ -110,7 +110,7 @@ async function getRouteMetricsKmMin(pickupLat, pickupLng, dropoffLat, dropoffLng
   } catch (e) {
     console.error("OSRM route metrics failed, fallback:", e.message || e);
     // fallback: assume ~20kph average
-    const fallbackDistanceKm = haversineDistance(pickupLat, pickupLng, dropoffLat, dropoffLng);
+    const fallbackDistanceKm = haversineDistanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng);
     const durationMin = (fallbackDistanceKm / 20) * 60;
     return { distanceKm: fallbackDistanceKm, durationMin };
   }
@@ -130,41 +130,11 @@ function computeFare(distanceKm) {
   return baseFare + extraUnits * extraPerKm;
 }
 
-async function computeSurgeMultiplier() {
-  // very simple surge logic (easy + stable)
-  // ratio = active demand / online supply
-  const [[activeRows]] = await pool.query(
-    `SELECT COUNT(*) AS active
-     FROM rides
-     WHERE status IN ('requested','assigned','in_progress')`
-  );
-  const [[onlineRows]] = await pool.query(
-    `SELECT COUNT(*) AS online
-     FROM drivers
-     WHERE status = 'online'`
-  );
-
-  const active = Number(activeRows?.active || 0);
-  const online = Math.max(1, Number(onlineRows?.online || 0));
-  const ratio = active / online;
-
-  // time-based boost (rush hours)
-  const hour = new Date().getHours();
-  const isRush = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19);
-
-  let mult = 1.0;
-  if (ratio >= 2.0) mult = 2.0;
-  else if (ratio >= 1.5) mult = 1.5;
-  else if (ratio >= 1.2) mult = 1.2;
-
-  if (isRush) mult = Math.max(mult, 1.2);
-
-  return mult;
-}
-
-
 app.use(cors());
 app.use(express.json());
+
+// Ensure passenger_count column exists (non-fatal)
+ensurePassengerCountColumn();
 
 const io = new Server(server, {
   cors: {
@@ -962,15 +932,18 @@ app.post(
       const { distanceKm, durationMin } = await getRouteMetricsKmMin(
         pickupLat, pickupLng, dropoffLat, dropoffLng
       );
+      // No surge pricing: keep multiplier at 1.0 (compatibility only)
+      const surgeMultiplier = 1.0;
 
-      const surgeMultiplier = await computeSurgeMultiplier();
-      const baseEstimatedFare = computeFare(distanceKm, surgeMultiplier);
+      // Base fare is computed from distance only
+      const baseEstimatedFare = computeFare(distanceKm);
       const estimatedFare = baseEstimatedFare * passengerCount;
 
       const includePassengerCount = await tableHasColumn("rides", "passenger_count");
+      const includeSurge = await tableHasColumn("rides", "surge_multiplier");
 
       let result;
-      if (includePassengerCount) {
+      if (includePassengerCount && includeSurge) {
         const [r] = await pool.query(
           `INSERT INTO rides
           (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
@@ -994,7 +967,30 @@ app.post(
           ]
         );
         result = r;
-      } else {
+      } else if (includePassengerCount && !includeSurge) {
+        const [r] = await pool.query(
+          `INSERT INTO rides
+          (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+            pickup_address, dropoff_address, status,
+            estimated_distance_km, estimated_duration_min, estimated_fare,
+            passenger_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)`,
+          [
+            passengerId,
+            pickupLat,
+            pickupLng,
+            dropoffLat,
+            dropoffLng,
+            pickup_address || null,
+            dropoff_address || null,
+            distanceKm,
+            durationMin,
+            estimatedFare,
+            passengerCount,
+          ]
+        );
+        result = r;
+      } else if (!includePassengerCount && includeSurge) {
         const [r] = await pool.query(
           `INSERT INTO rides
           (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
@@ -1013,6 +1009,27 @@ app.post(
             durationMin,
             estimatedFare,
             surgeMultiplier,
+          ]
+        );
+        result = r;
+      } else {
+        const [r] = await pool.query(
+          `INSERT INTO rides
+          (passenger_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+            pickup_address, dropoff_address, status,
+            estimated_distance_km, estimated_duration_min, estimated_fare)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?)`,
+          [
+            passengerId,
+            pickupLat,
+            pickupLng,
+            dropoffLat,
+            dropoffLng,
+            pickup_address || null,
+            dropoff_address || null,
+            distanceKm,
+            durationMin,
+            estimatedFare,
           ]
         );
         result = r;
@@ -1041,9 +1058,8 @@ app.post(
         status: newRide.status,
         estimated_distance_km: newRide.estimated_distance_km,
         estimated_fare: newRide.estimated_fare,
-        passenger_count: newRide.passenger_count,
-        passengerId: newRide.passenger_id,
         passenger_count: passengerCount,
+        passengerId: newRide.passenger_id,
       });
 
       res.json({ ride: newRide });

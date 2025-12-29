@@ -23,8 +23,7 @@ type Ride = {
   estimated_distance_km?: number | string;
   estimated_duration_min?: number | string;
   estimated_fare?: number;
-  surge_multiplier?: number;
-  status?: string;
+status?: string;
   fare?: number;
   final_fare?: number;
   created_at?: string;
@@ -383,13 +382,6 @@ export default function HomeScreen({ onOpenRide, onOpenHistory }: Props) {
               )}
 
               {ride.estimated_fare != null && <Text>Est. fare: ₱{ride.estimated_fare}</Text>}
-
-              {ride.surge_multiplier != null && Number(ride.surge_multiplier) > 1 && (
-                <Text style={{ color: "#B71C1C", fontWeight: "600" }}>
-                  Surge: ×{Number(ride.surge_multiplier).toFixed(1)}
-                </Text>
-              )}
-
               <View style={{ height: 10 }} />
 
               <TouchableOpacity

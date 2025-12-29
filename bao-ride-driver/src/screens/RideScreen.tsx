@@ -28,8 +28,7 @@ type Ride = {
   distance_km?: number | string;
   estimated_fare?: number;
   fare?: number;
-  surge_multiplier?: number;
-  driver_id?: number | null;
+driver_id?: number | null;
   [key: string]: any;
 };
 
@@ -93,8 +92,7 @@ export default function RideScreen({
         distance_km: payload.distanceKm ?? prev?.distance_km,
         estimated_duration_min:
           payload.estimated_duration_min ?? prev?.estimated_duration_min,
-        surge_multiplier: payload.surge_multiplier ?? prev?.surge_multiplier,
-        passenger_count: payload.passenger_count ?? prev?.passenger_count,
+passenger_count: payload.passenger_count ?? prev?.passenger_count,
       }));
 
       if (payload.status) setStatusText(payload.status);
@@ -390,13 +388,6 @@ export default function RideScreen({
         <Text>ETA: {displayEta()}</Text>
         <Text>Passengers: {ride.passenger_count ?? 1}</Text>
         <Text>Total fare: {totalFare != null ? `₱${totalFare}` : "₱--"}</Text>
-
-        {ride.surge_multiplier != null && Number(ride.surge_multiplier) > 1 && (
-          <Text style={{ color: "#B71C1C", fontWeight: "600" }}>
-            Surge: ×{Number(ride.surge_multiplier).toFixed(1)}
-          </Text>
-        )}
-
         <View style={{ height: 10 }} />
 
         {(ride.status === "assigned" || ride.status === "in_progress") && (
